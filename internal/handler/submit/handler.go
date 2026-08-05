@@ -115,6 +115,10 @@ type resolvedRepository struct {
 	id    forge.RepositoryID
 }
 
+func supportsChangeStack(remote state.Remote, f forge.Forge) bool {
+	return f.ID() != "github" || !remote.ForkMode()
+}
+
 func (h *Handler) upstream(ctx context.Context) (resolvedRepository, error) {
 	return h._upstream.Get(func() (resolvedRepository, error) {
 		remote, err := h.remote(ctx)
@@ -199,9 +203,10 @@ type BatchOptions struct {
 
 // BatchRequest is a request to submit one or more change requests.
 type BatchRequest struct {
-	Branches     []string // required
-	Options      *Options
-	BatchOptions *BatchOptions // required
+	Branches      []string // required
+	StackBranches []string // optional, ordered bottom to top
+	Options       *Options
+	BatchOptions  *BatchOptions // required
 
 	// BranchGraph is an optional graph already built by the command layer.
 	//
@@ -237,6 +242,7 @@ func (h *Handler) SubmitBatch(ctx context.Context, req *BatchRequest) error {
 	}
 
 	var branchesToComment []string
+	changeIDsByBranch := make(map[string]forge.ChangeID, len(req.Branches))
 	for _, branch := range req.Branches {
 		// Shallow copy the options because submitBranch may modify them.
 		opts := *opts
@@ -251,6 +257,42 @@ func (h *Handler) SubmitBatch(ctx context.Context, req *BatchRequest) error {
 		}
 		if status.Submitted {
 			branchesToComment = append(branchesToComment, branch)
+		}
+		if status.ChangeID != nil {
+			changeIDsByBranch[branch] = status.ChangeID
+		}
+	}
+
+	if !opts.DryRun && len(req.StackBranches) > 0 {
+		changes := make([]forge.ChangeID, 0, len(req.StackBranches))
+		for _, branch := range req.StackBranches {
+			changeID, ok := changeIDsByBranch[branch]
+			if !ok {
+				changes = nil
+				break
+			}
+			changes = append(changes, changeID)
+		}
+		if len(changes) > 0 {
+			remote, err := h.remote(ctx)
+			if err != nil {
+				return fmt.Errorf("get remote for change stack: %w", err)
+			}
+			upstream, err := h.upstream(ctx)
+			if err != nil {
+				return fmt.Errorf("resolve repository for change stack: %w", err)
+			}
+			if supportsChangeStack(remote, upstream.forge) {
+				repo, err := h.upstreamRepository(ctx)
+				if err != nil {
+					return fmt.Errorf("open repository for change stack: %w", err)
+				}
+				if err := forge.EnsureChangeStack(ctx, repo, changes); err != nil {
+					return fmt.Errorf("update change stack: %w", err)
+				}
+			} else {
+				h.Log.Infof("Skipping GitHub stack reconciliation for fork-mode submission")
+			}
 		}
 	}
 
@@ -347,6 +389,9 @@ type submitStatus struct {
 	// If yes, comments will be added or updated
 	// based on the NavComment option.
 	Submitted bool
+
+	// ChangeID identifies the submitted change.
+	ChangeID forge.ChangeID
 }
 
 type submitOptions struct {
@@ -768,6 +813,7 @@ func (h *Handler) submitBranch(
 			if err != nil {
 				return status, fmt.Errorf("publish change: %w", err)
 			}
+			status.ChangeID = changeID
 			openURL = changeURL
 
 			remoteRepo := prepared.remoteRepo
@@ -788,6 +834,7 @@ func (h *Handler) submitBranch(
 			log.Infof("Pushed %s", branchToSubmit)
 		}
 	} else {
+		status.ChangeID = existingChange.ID
 		needsNavComment()
 		if upstreamBranch == "" {
 			log.Error("No upstream branch was found for branch %v with existing CR %v", branchToSubmit, existingChange.ID)

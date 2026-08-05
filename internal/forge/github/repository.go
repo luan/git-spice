@@ -18,16 +18,19 @@ import (
 type githubGateway interface {
 	AddComment(context.Context, github.ID, string) (*github.AddedComment, error)
 	AddPullRequestMetadata(context.Context, *github.PullRequestMetadataInput) error
+	AddToStack(context.Context, string, string, int, []int) (*github.Stack, error)
 	ChangeStatuses(context.Context, []github.ID) ([]*github.ChangeStatus, error)
 	ChangeTemplates(context.Context, string, string) ([]*github.ChangeTemplate, error)
 	ClosePullRequest(context.Context, github.ID) error
 	ConvertPullRequestToDraft(context.Context, github.ID) error
 	CreateLabel(context.Context, github.ID, string, string) (github.ID, error)
 	CreatePullRequest(context.Context, *github.CreatePullRequestInput) (*github.CreatedPullRequest, error)
+	CreateStack(context.Context, string, string, []int) (*github.Stack, error)
 	DeleteIssueComment(context.Context, github.ID) error
 	DeleteLabel(context.Context, github.ID) error
 	FindPullRequests(context.Context, string, string, string, int, []github.PullRequestState) ([]*github.PullRequest, error)
 	FindPullRequestsByBranches(context.Context, *github.FindPullRequestsByBranchesRequest) ([][]*github.PullRequestBranchMatch, error)
+	FindStackForPullRequest(context.Context, string, string, int) (*github.Stack, error)
 	IdentityIDs(context.Context, []string, []github.TeamName) ([]github.ID, []github.ID, error)
 	LabelIDs(context.Context, string, string, []string) ([]github.ID, error)
 	MarkPullRequestReadyForReview(context.Context, github.ID) error

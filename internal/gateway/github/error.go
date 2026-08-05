@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Sentinel errors classify GitHub GraphQL error types.
+// Sentinel errors classify GitHub API errors.
 // Match them with [errors.Is].
 var (
 	// ErrNotFound matches a GraphQL error whose type is NOT_FOUND.
@@ -17,6 +17,9 @@ var (
 
 	// ErrUnprocessable matches a GraphQL error whose type is UNPROCESSABLE.
 	ErrUnprocessable = errors.New("unprocessable")
+
+	// ErrUnsupportedAPI matches a REST API version unavailable on the server.
+	ErrUnsupportedAPI = errors.New("unsupported API")
 )
 
 // Error is one error from a GitHub GraphQL response.

@@ -1,7 +1,7 @@
-// Package github provides the GitHub GraphQL operations needed by git-spice.
+// Package github provides the GitHub API operations needed by git-spice.
 //
-// The package owns GitHub's GraphQL wire protocol, authenticated request
-// execution, and response error model.
+// The package owns GitHub's GraphQL and REST wire protocols, authenticated
+// request execution, and response error models.
 // Callers supply credentials through [TokenSource] and adapt the typed results
 // to their own domain models.
 // The package does not own credential discovery, persistence, or login flows.
@@ -19,9 +19,8 @@ import (
 	"strings"
 )
 
-// maxErrorBody limits the diagnostic content retained from a non-GraphQL HTTP
-// response so a proxy or server cannot turn an error into an unbounded
-// allocation or diagnostic.
+// maxErrorBody limits diagnostic content retained from unsuccessful HTTP
+// responses so a proxy or server cannot cause an unbounded allocation.
 const maxErrorBody = 4 * 1024
 
 // TokenSource supplies an access token for one GitHub request.
@@ -30,18 +29,19 @@ type TokenSource interface {
 	Token(context.Context) (string, error)
 }
 
-// Gateway executes the typed GitHub GraphQL operations exposed by this package.
+// Gateway executes the typed GitHub API operations exposed by this package.
 //
 // A Gateway is safe for concurrent use when its HTTP client and token source are
 // safe for concurrent use.
 // Each operation retrieves a token with the operation context, sends one
-// authenticated request to the configured GitHub endpoint, and decodes either
-// its complete result or the GraphQL errors.
-// GitHub responses containing both data and errors return only the errors;
-// callers never observe a partial result.
+// authenticated request to the configured GitHub endpoint, and decodes its
+// typed response.
 type Gateway struct {
 	// endpoint is the GraphQL endpoint derived from the configured API base URL.
 	endpoint string
+
+	// restEndpoint is the configured REST API base URL.
+	restEndpoint string
 
 	// httpClient performs requests after the gateway has supplied authentication.
 	httpClient *http.Client
@@ -68,9 +68,10 @@ func NewGateway(apiURL string, httpClient *http.Client, tokens TokenSource) (*Ga
 		return nil, errors.New("token source is required")
 	}
 	return &Gateway{
-		endpoint:   endpoint,
-		httpClient: httpClient,
-		tokens:     tokens,
+		endpoint:     endpoint,
+		restEndpoint: strings.TrimRight(apiURL, "/"),
+		httpClient:   httpClient,
+		tokens:       tokens,
 	}, nil
 }
 

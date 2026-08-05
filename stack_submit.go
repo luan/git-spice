@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"go.abhg.dev/gs/internal/git"
 	"go.abhg.dev/gs/internal/handler/submit"
@@ -41,24 +40,36 @@ func (cmd *stackSubmitCmd) Run(
 		return fmt.Errorf("build branch graph: %w", err)
 	}
 
-	stack := slices.Collect(graph.Stack(currentBranch))
-	if len(stack) == 0 {
-		stack = []string{currentBranch}
-	}
-	toSubmit := stack[:0]
-	for _, branch := range stack {
-		if branch == store.Trunk() {
-			continue
-		}
-		toSubmit = append(toSubmit, branch)
+	toSubmit, err := selectStackBranches(graph, currentBranch, store.Trunk())
+	if err != nil {
+		return err
 	}
 
 	// TODO: separate preparation of the stack from submission
 
 	return submitHandler.SubmitBatch(ctx, &submit.BatchRequest{
-		Branches:     toSubmit,
-		Options:      &cmd.Options,
-		BatchOptions: &cmd.BatchOptions,
-		BranchGraph:  graph,
+		Branches:      toSubmit,
+		StackBranches: toSubmit,
+		Options:       &cmd.Options,
+		BatchOptions:  &cmd.BatchOptions,
+		BranchGraph:   graph,
 	})
+}
+
+func selectStackBranches(
+	graph *spice.BranchGraph,
+	branch, trunk string,
+) ([]string, error) {
+	stack, err := graph.StackLinear(branch)
+	if err != nil {
+		return nil, fmt.Errorf("cannot submit nonlinear stack: %w", err)
+	}
+
+	toSubmit := make([]string, 0, len(stack))
+	for _, branch := range stack {
+		if branch != trunk {
+			toSubmit = append(toSubmit, branch)
+		}
+	}
+	return toSubmit, nil
 }

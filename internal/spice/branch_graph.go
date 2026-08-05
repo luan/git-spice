@@ -383,19 +383,33 @@ func (g *BranchGraph) StackLinear(branch string) ([]string, error) {
 	}
 	slices.Reverse(downstacks)
 
+	check := func(branch string) error {
+		aboves := g.byBase[branch]
+		if len(aboves) <= 1 {
+			return nil
+		}
+
+		aboveNames := make([]string, len(aboves))
+		for i, idx := range aboves {
+			aboveNames[i] = g.branches[idx].Name
+		}
+		return &NonLinearStackError{
+			Branch: branch,
+			Aboves: aboveNames,
+		}
+	}
+
+	for _, down := range downstacks {
+		if err := check(down); err != nil {
+			return nil, err
+		}
+	}
+
 	upstacks := []string{branch}
 	current := branch
 	for aboves := g.byBase[current]; len(aboves) > 0; {
-		if len(aboves) > 1 {
-			aboveNames := make([]string, len(aboves))
-			for i, idx := range aboves {
-				aboveNames[i] = g.branches[idx].Name
-			}
-
-			return nil, &NonLinearStackError{
-				Branch: current,
-				Aboves: aboveNames,
-			}
+		if err := check(current); err != nil {
+			return nil, err
 		}
 
 		above := g.branches[aboves[0]]

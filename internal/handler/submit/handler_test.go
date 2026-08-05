@@ -117,6 +117,43 @@ func TestHandler_pushRepositoryID_rejectsDifferentForge(t *testing.T) {
 	assert.Contains(t, err.Error(), "different forge")
 }
 
+func TestSupportsChangeStack(t *testing.T) {
+	tests := []struct {
+		name    string
+		remote  state.Remote
+		forgeID string
+		want    bool
+	}{
+		{
+			name:    "GitHubSameRemote",
+			remote:  state.Remote{Upstream: "origin", Push: "origin"},
+			forgeID: "github",
+			want:    true,
+		},
+		{
+			name:    "GitHubForkMode",
+			remote:  state.Remote{Upstream: "upstream", Push: "origin"},
+			forgeID: "github",
+			want:    false,
+		},
+		{
+			name:    "OtherForgeForkMode",
+			remote:  state.Remote{Upstream: "upstream", Push: "origin"},
+			forgeID: "gitlab",
+			want:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			f := forgetest.NewMockForge(ctrl)
+			f.EXPECT().ID().Return(tt.forgeID)
+			assert.Equal(t, tt.want, supportsChangeStack(tt.remote, f))
+		})
+	}
+}
+
 func TestHandler_SubmitBatch_rejectsStaleBaseBeforeSubmitting(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
 
@@ -310,6 +347,7 @@ func TestHandler_submitBranch_editBase(t *testing.T) {
 			)
 			require.NoError(t, err)
 			assert.True(t, status.Submitted)
+			assert.Equal(t, tt.change.ID, status.ChangeID)
 			assert.Equal(t, tt.wantPushed, pushed)
 		})
 	}
