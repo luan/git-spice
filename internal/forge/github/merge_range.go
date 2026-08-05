@@ -22,6 +22,10 @@ func (r *Repository) MergeRange(
 	ctx context.Context,
 	request forge.MergeRangeRequest,
 ) (forge.MergeOperation, error) {
+	if !r.stacksEnabled {
+		return nil, forge.ErrUnsupported
+	}
+
 	mergeRange, err := newGitHubMergeRange(r, request)
 	if err != nil {
 		return nil, err

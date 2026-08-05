@@ -36,6 +36,10 @@ func (r *Repository) UpdateStack(
 	ctx context.Context,
 	changes []forge.StackChange,
 ) error {
+	if !r.stacksEnabled {
+		return forge.ErrUnsupported
+	}
+
 	update, err := newGitHubStackUpdate(r, changes)
 	if err != nil {
 		return err

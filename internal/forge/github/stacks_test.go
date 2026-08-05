@@ -195,6 +195,25 @@ func TestRepository_UpdateStackUnsupported(t *testing.T) {
 	assert.ErrorIs(t, err, github.ErrNotFound)
 }
 
+func TestRepository_UpdateStackDisabled(t *testing.T) {
+	gateway := NewMockGithubGateway(gomock.NewController(t))
+	repo, err := newRepository(
+		t.Context(),
+		new(Forge),
+		"acme",
+		"repo",
+		silogtest.New(t),
+		gateway,
+		"repo-id",
+	)
+	require.NoError(t, err)
+
+	err = repo.UpdateStack(t.Context(), []forge.StackChange{
+		{Change: &PR{Number: 1}},
+	})
+	require.ErrorIs(t, err, forge.ErrUnsupported)
+}
+
 func TestRepository_UpdateStackMissingChange(t *testing.T) {
 	gateway := NewMockGithubGateway(gomock.NewController(t))
 	expectPullRequests(t, gateway, map[int]*github.StackUpdatePullRequest{1: nil})
@@ -312,10 +331,11 @@ func TestRepository_UpdateStackReconnectsAboveMergedChange(t *testing.T) {
 
 func newStackRepository(t *testing.T, gateway githubGateway) *Repository {
 	return &Repository{
-		owner:   "acme",
-		repo:    "repo",
-		gateway: gateway,
-		log:     silogtest.New(t),
+		owner:         "acme",
+		repo:          "repo",
+		gateway:       gateway,
+		log:           silogtest.New(t),
+		stacksEnabled: true,
 	}
 }
 

@@ -98,6 +98,9 @@ func TestIntegration(t *testing.T) {
 
 	githubForge := github.Forge{
 		Log: silogtest.New(t),
+		Options: github.Options{
+			Stacks: true,
+		},
 	}
 
 	forgetest.RunIntegration(t, forgetest.IntegrationConfig{
