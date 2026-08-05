@@ -1,0 +1,58 @@
+# --existing-only preflights the whole batch before pushing any branch.
+
+as 'Test <test@example.com>'
+at '2026-08-05T12:00:00Z'
+
+cd repo
+git init
+git commit --allow-empty -m 'Initial commit'
+
+shamhub-setup
+shamhub new origin alice/example.git
+shamhub register alice
+git push origin main
+
+env SHAMHUB_USERNAME=alice
+gs auth login
+
+# Create two tracked branches, but only publish the bottom branch.
+git add first.txt
+gs branch create first -m first
+gs branch submit --fill
+
+git add second.txt
+gs branch create second -m second
+gs branch submit --no-publish
+stderr 'Pushed second'
+
+# Advance both branches locally. The top branch remains unmapped.
+gs branch checkout first
+git add first-update.txt
+gs commit create -m 'update first'
+gs branch checkout second
+gs branch restack
+git add second-update.txt
+gs commit create -m 'update second'
+
+# The preflight must fail before updating the already-mapped bottom branch.
+! gs stack submit --update-only --existing-only --fill
+stderr 'branch "second" has no associated change request'
+
+# The remote bottom branch still points to its original submitted commit.
+git rev-parse origin/first
+stdout '^b12ba7f8213768eeb2beb48575ac7e436d545028$'
+git rev-parse first
+! stdout '^b12ba7f8213768eeb2beb48575ac7e436d545028$'
+
+shamhub dump changes
+stdout '"ref": "first"'
+stdout '"sha": "b12ba7f8213768eeb2beb48575ac7e436d545028"'
+
+-- repo/first.txt --
+first
+-- repo/second.txt --
+second
+-- repo/first-update.txt --
+first update
+-- repo/second-update.txt --
+second update

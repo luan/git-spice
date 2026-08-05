@@ -29,6 +29,7 @@ import (
 // that is used by the submit handler.
 type GitRepository interface {
 	PeelToCommit(ctx context.Context, ref string) (git.Hash, error)
+	IsAncestor(ctx context.Context, ancestor, descendant git.Hash) bool
 	PeelToTree(ctx context.Context, ref string) (git.Hash, error)
 	BranchUpstream(ctx context.Context, branch string) (string, error)
 	SetBranchUpstream(ctx context.Context, branch string, upstream string) error
@@ -237,12 +238,54 @@ func (h *Handler) SubmitBatch(ctx context.Context, req *BatchRequest) error {
 			return fmt.Errorf("build branch graph: %w", err)
 		}
 	}
+	verifiedHeads := make(map[string]git.Hash)
+	if opts.ExistingOnly {
+		var err error
+		verifiedHeads, err = h.checkExistingChanges(
+			ctx,
+			graph,
+			req.Branches,
+			len(req.StackBranches) > 0,
+			opts,
+		)
+		if err != nil {
+			return err
+		}
+	}
 	if err := h.checkStaleSubmissionBases(ctx, graph, req.Branches, opts); err != nil {
 		return err
+	}
+	if opts.ExistingOnly {
+		for _, branchName := range req.Branches {
+			branch, _ := graph.Lookup(branchName)
+			if err := h.verifyRestackedForSubmit(
+				ctx,
+				branchName,
+				branch.Base,
+				opts,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	pushedBranches := make(map[string]bool)
+	if opts.ExistingOnly && !opts.DryRun {
+		var err error
+		pushedBranches, err = h.pushExistingChangesAtomic(
+			ctx,
+			graph,
+			req.Branches,
+			verifiedHeads,
+			opts,
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	var branchesToComment []string
 	changeIDsByBranch := make(map[string]forge.ChangeID, len(req.Branches))
+	resolvedUpstreams := make(map[string]string, len(req.Branches))
 	for _, branch := range req.Branches {
 		// Shallow copy the options because submitBranch may modify them.
 		opts := *opts
@@ -250,7 +293,12 @@ func (h *Handler) SubmitBatch(ctx context.Context, req *BatchRequest) error {
 			ctx,
 			graph,
 			branch,
-			&submitOptions{Options: &opts},
+			&submitOptions{
+				Options:            &opts,
+				ExpectedRemoteHead: verifiedHeads[branch],
+				ResolvedUpstreams:  resolvedUpstreams,
+				AlreadyPushed:      pushedBranches[branch],
+			},
 		)
 		if err != nil {
 			return fmt.Errorf("submit branch %s: %w", branch, err)
@@ -261,9 +309,12 @@ func (h *Handler) SubmitBatch(ctx context.Context, req *BatchRequest) error {
 		if status.ChangeID != nil {
 			changeIDsByBranch[branch] = status.ChangeID
 		}
+		if status.UpstreamBranch != "" {
+			resolvedUpstreams[branch] = status.UpstreamBranch
+		}
 	}
 
-	if !opts.DryRun && len(req.StackBranches) > 0 {
+	if len(req.StackBranches) > 0 && !opts.DryRun {
 		changes := make([]forge.ChangeID, 0, len(req.StackBranches))
 		for _, branch := range req.StackBranches {
 			changeID, ok := changeIDsByBranch[branch]
@@ -274,6 +325,10 @@ func (h *Handler) SubmitBatch(ctx context.Context, req *BatchRequest) error {
 			changes = append(changes, changeID)
 		}
 		if len(changes) > 0 {
+			repo, err := h.upstreamRepository(ctx)
+			if err != nil {
+				return fmt.Errorf("open repository for change stack: %w", err)
+			}
 			remote, err := h.remote(ctx)
 			if err != nil {
 				return fmt.Errorf("get remote for change stack: %w", err)
@@ -283,10 +338,6 @@ func (h *Handler) SubmitBatch(ctx context.Context, req *BatchRequest) error {
 				return fmt.Errorf("resolve repository for change stack: %w", err)
 			}
 			if supportsChangeStack(remote, upstream.forge) {
-				repo, err := h.upstreamRepository(ctx)
-				if err != nil {
-					return fmt.Errorf("open repository for change stack: %w", err)
-				}
 				if err := forge.EnsureChangeStack(ctx, repo, changes); err != nil {
 					return fmt.Errorf("update change stack: %w", err)
 				}
@@ -313,6 +364,212 @@ func (h *Handler) SubmitBatch(ctx context.Context, req *BatchRequest) error {
 		h.upstreamRepository,
 		h.pushRepositoryID,
 	)
+}
+func (h *Handler) checkExistingChanges(
+	ctx context.Context,
+	graph *spice.BranchGraph,
+	branches []string,
+	completeStack bool,
+	opts *Options,
+) (map[string]git.Hash, error) {
+	changeIDs := make([]forge.ChangeID, 0, len(branches))
+	for _, branchName := range branches {
+		branch, ok := graph.Lookup(branchName)
+		if !ok {
+			return nil, fmt.Errorf("lookup branch %q: %w", branchName, state.ErrNotExist)
+		}
+		if branch.Change == nil {
+			return nil, fmt.Errorf(
+				"branch %q has no associated change request; cannot prove existing remote identity",
+				branchName,
+			)
+		}
+		if branch.UpstreamBranch == "" {
+			return nil, fmt.Errorf(
+				"branch %q has no recorded upstream branch; cannot prove existing remote identity",
+				branchName,
+			)
+		}
+		changeIDs = append(changeIDs, branch.Change.ChangeID())
+	}
+
+	remoteRepo, err := h.upstreamRepository(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("open repository for existing-change preflight: %w", err)
+	}
+	if err := forge.ValidateChangeIDs(ctx, remoteRepo, changeIDs); err != nil {
+		return nil, fmt.Errorf("validate persisted change identity: %w", err)
+	}
+	statuses, err := remoteRepo.ChangeStatuses(ctx, changeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("check existing changes: %w", err)
+	}
+	if len(statuses) != len(changeIDs) {
+		return nil, fmt.Errorf(
+			"check existing changes: forge returned %d statuses for %d changes",
+			len(statuses),
+			len(changeIDs),
+		)
+	}
+	for i, status := range statuses {
+		if status.State != forge.ChangeOpen {
+			return nil, fmt.Errorf(
+				"branch %q change request %v is %v, not open",
+				branches[i],
+				changeIDs[i],
+				status.State,
+			)
+		}
+	}
+	pushRepo, err := h.pushRepositoryID(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve push repository for existing-change preflight: %w", err)
+	}
+	verifiedHeads := make(map[string]git.Hash, len(branches))
+	for i, branchName := range branches {
+		branch, _ := graph.Lookup(branchName)
+		changes, err := remoteRepo.FindChangesByBranch(
+			ctx,
+			branch.UpstreamBranch,
+			forge.FindChangesOptions{
+				State:          forge.ChangeOpen,
+				PushRepository: pushRepo,
+				Limit:          100,
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("check branch %q change request identity: %w", branchName, err)
+		}
+
+		var found *forge.FindChangeItem
+		for _, change := range changes {
+			if forge.SameChangeID(change.ID, changeIDs[i]) {
+				found = change
+				break
+			}
+		}
+		if found == nil {
+			return nil, fmt.Errorf(
+				"branch %q change request %v does not match remote branch %q in the configured push repository",
+				branchName,
+				changeIDs[i],
+				branch.UpstreamBranch,
+			)
+		}
+		if found.HeadHash == "" {
+			return nil, fmt.Errorf(
+				"branch %q change request %v did not report a remote head",
+				branchName,
+				changeIDs[i],
+			)
+		}
+
+		expectedBase := branch.Base
+		if base, ok := graph.Lookup(branch.Base); ok && base.UpstreamBranch != "" {
+			expectedBase = base.UpstreamBranch
+		}
+		if found.BaseName != expectedBase {
+			return nil, fmt.Errorf(
+				"branch %q change request %v base is %q, expected %q",
+				branchName,
+				changeIDs[i],
+				found.BaseName,
+				expectedBase,
+			)
+		}
+		localHead := branch.Head
+		if localHead != found.HeadHash &&
+			!opts.Force &&
+			!h.Repository.IsAncestor(ctx, found.HeadHash, localHead) {
+			return nil, fmt.Errorf(
+				"existing-only submission would rewrite branch %q; rerun with --force to authorize the history rewrite",
+				branch.UpstreamBranch,
+			)
+		}
+		verifiedHeads[branchName] = found.HeadHash
+	}
+	validateStack := forge.ValidateChangeStackSelection
+	if completeStack {
+		validateStack = forge.ValidateChangeStack
+	}
+	if err := validateStack(ctx, remoteRepo, changeIDs); err != nil {
+		return nil, fmt.Errorf("validate existing change stack: %w", err)
+	}
+	return verifiedHeads, nil
+}
+
+func (h *Handler) pushExistingChangesAtomic(
+	ctx context.Context,
+	graph *spice.BranchGraph,
+	branches []string,
+	verifiedHeads map[string]git.Hash,
+	opts *Options,
+) (map[string]bool, error) {
+	remote, err := h.remote(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get remote for existing-only push: %w", err)
+	}
+
+	pushed := make(map[string]bool, len(branches))
+	pushOpts := git.PushOptions{
+		Remote:   remote.Push,
+		Atomic:   true,
+		NoVerify: opts.NoVerify,
+	}
+	for _, branchName := range branches {
+		branch, _ := graph.Lookup(branchName)
+		expected := verifiedHeads[branchName]
+		if branch.Head == expected {
+			continue
+		}
+		pushOpts.Refspecs = append(
+			pushOpts.Refspecs,
+			git.Refspec(branch.Head.String()+":refs/heads/"+branch.UpstreamBranch),
+		)
+		pushOpts.ForceWithLeases = append(
+			pushOpts.ForceWithLeases,
+			branch.UpstreamBranch+":"+expected.String(),
+		)
+		pushed[branchName] = true
+	}
+	if len(pushOpts.Refspecs) == 0 {
+		return pushed, nil
+	}
+	if err := h.Worktree.Push(ctx, pushOpts); err != nil {
+		return nil, fmt.Errorf("atomically push existing branches: %w", err)
+	}
+	return pushed, nil
+}
+
+func (h *Handler) verifyRestackedForSubmit(
+	ctx context.Context,
+	branchName string,
+	base string,
+	opts *Options,
+) error {
+	if opts.Force {
+		return nil
+	}
+	if err := h.Service.VerifyRestacked(ctx, branchName); err == nil {
+		return nil
+	}
+	if shouldSkipRestackCheck(
+		opts.SkipRestackCheck,
+		base,
+		h.Store.Trunk(),
+	) {
+		h.Log.Warnf("Branch %[1]s is not restacked."+
+			" Run '%[2]s branch restack --branch=%[1]s'"+
+			" to fix this.",
+			branchName, cli.Name(),
+		)
+		return nil
+	}
+	h.Log.Errorf("Branch %s needs to be restacked.", branchName)
+	h.Log.Errorf("Run the following command to fix this:")
+	h.Log.Errorf("  %s branch restack --branch=%s", cli.Name(), branchName)
+	h.Log.Errorf("Or, try again with --force to submit anyway.")
+	return errors.New("refusing to submit outdated branch")
 }
 
 // Request is a request to submit a single branch to a remote repository.
@@ -344,6 +601,20 @@ func (h *Handler) Submit(ctx context.Context, req *Request) error {
 			return fmt.Errorf("build branch graph: %w", err)
 		}
 	}
+	var expectedRemoteHead git.Hash
+	if opts.ExistingOnly {
+		verifiedHeads, err := h.checkExistingChanges(
+			ctx,
+			graph,
+			[]string{req.Branch},
+			false,
+			opts,
+		)
+		if err != nil {
+			return err
+		}
+		expectedRemoteHead = verifiedHeads[req.Branch]
+	}
 	if err := h.checkStaleSubmissionBases(ctx, graph, []string{req.Branch}, opts); err != nil {
 		return err
 	}
@@ -353,9 +624,10 @@ func (h *Handler) Submit(ctx context.Context, req *Request) error {
 		graph,
 		req.Branch,
 		&submitOptions{
-			Options: opts,
-			Title:   req.Title,
-			Body:    req.Body,
+			Options:            opts,
+			Title:              req.Title,
+			Body:               req.Body,
+			ExpectedRemoteHead: expectedRemoteHead,
 		},
 	)
 	if err != nil {
@@ -392,12 +664,19 @@ type submitStatus struct {
 
 	// ChangeID identifies the submitted change.
 	ChangeID forge.ChangeID
+
+	// UpstreamBranch is the exact remote branch used for the change.
+	UpstreamBranch string
 }
 
 type submitOptions struct {
 	*Options
 
 	Title, Body string
+
+	ExpectedRemoteHead git.Hash
+	ResolvedUpstreams  map[string]string
+	AlreadyPushed      bool
 }
 
 func (h *Handler) submitBranch(
@@ -459,7 +738,11 @@ func (h *Handler) submitBranch(
 		if !ok {
 			return status, fmt.Errorf("lookup base branch: %w", state.ErrNotExist)
 		}
-		upstreamBase = cmp.Or(baseBranch.UpstreamBranch, branch.Base)
+		if resolved := opts.ResolvedUpstreams[branch.Base]; resolved != "" {
+			upstreamBase = resolved
+		} else {
+			upstreamBase = cmp.Or(baseBranch.UpstreamBranch, branch.Base)
+		}
 	}
 
 	var existingChange *forge.FindChangeItem
@@ -500,10 +783,12 @@ func (h *Handler) submitBranch(
 			if upstreamBranch == "" {
 				change := changes[0]
 				if change.HeadHash != commitHash {
-					log.Infof("%v: Ignoring CR %v with the same branch name: remote HEAD (%v) does not match local HEAD (%v)",
-						branchToSubmit, change.ID, change.HeadHash, commitHash)
-					log.Infof("%v: If this is incorrect, cancel this operation, 'git pull' the branch, and retry.", branchToSubmit)
-					break
+					return status, fmt.Errorf(
+						"remote branch %q already exists with a different HEAD (remote %s, local %s); reconcile the existing change before submitting",
+						branchToSubmit,
+						change.HeadHash,
+						commitHash,
+					)
 				}
 				upstreamBranch = branchToSubmit
 			}
@@ -512,6 +797,9 @@ func (h *Handler) submitBranch(
 			// It was probably created manually.
 			// We'll associate it now.
 			existingChange = changes[0]
+			if opts.DryRun {
+				break
+			}
 			log.Infof("%v: Found existing CR %v", branchToSubmit, existingChange.ID)
 
 			md, err := remoteRepo.NewChangeMetadata(ctx, existingChange.ID)
@@ -553,7 +841,6 @@ func (h *Handler) submitBranch(
 			}); err != nil {
 				return status, fmt.Errorf("%s: %w", msg, err)
 			}
-
 			if err := tx.Commit(ctx, msg); err != nil {
 				return status, fmt.Errorf("update state: %w", err)
 			}
@@ -606,6 +893,12 @@ func (h *Handler) submitBranch(
 			// but not if it was merged.
 		}
 	}
+	if opts.ExistingOnly && existingChange == nil {
+		return status, fmt.Errorf(
+			"existing-only submission requires an open change request for branch %q",
+			branchToSubmit,
+		)
+	}
 
 	var openURL string
 	if !opts.DryRun && opts.Web.shouldOpen(existingChange == nil /* new CR */) {
@@ -639,36 +932,25 @@ func (h *Handler) submitBranch(
 			if err != nil {
 				return status, fmt.Errorf("find unique branch name: %w", err)
 			}
-
 			if unique != branchToSubmit {
-				log.Infof("%v: Branch name already in use in remote '%v'", branchToSubmit, remote.Push)
-				log.Infof("%v: Using upstream name '%v' instead", branchToSubmit, unique)
+				return status, fmt.Errorf(
+					"remote branch %q already exists in remote %q; choose an explicit branch name instead of creating %q",
+					branchToSubmit,
+					remote.Push,
+					unique,
+				)
 			}
-			upstreamBranch = unique
+			upstreamBranch = branchToSubmit
 		}
 	}
 
-	// Refuse to submit if the branch is not restacked.
-	if !opts.Force {
-		if err := svc.VerifyRestacked(ctx, branchToSubmit); err != nil {
-			if shouldSkipRestackCheck(
-				opts.SkipRestackCheck,
-				branch.Base,
-				h.Store.Trunk(),
-			) {
-				log.Warnf("Branch %[1]s is not restacked."+
-					" Run '%[2]s branch restack --branch=%[1]s'"+
-					" to fix this.",
-					branchToSubmit, cli.Name(),
-				)
-			} else {
-				log.Errorf("Branch %s needs to be restacked.", branchToSubmit)
-				log.Errorf("Run the following command to fix this:")
-				log.Errorf("  %s branch restack --branch=%s", cli.Name(), branchToSubmit)
-				log.Errorf("Or, try again with --force to submit anyway.")
-				return status, errors.New("refusing to submit outdated branch")
-			}
-		}
+	if err := h.verifyRestackedForSubmit(
+		ctx,
+		branchToSubmit,
+		branch.Base,
+		opts.Options,
+	); err != nil {
+		return status, err
 	}
 
 	if existingChange == nil {
@@ -765,11 +1047,12 @@ func (h *Handler) submitBranch(
 			NoVerify: opts.NoVerify,
 		}
 
-		// If we've already pushed this branch before,
-		// we'll need a force push.
-		// Use a --force-with-lease to avoid
-		// overwriting someone else's changes.
-		if !opts.Force {
+		// Existing-only submission always binds the push to the exact head
+		// verified during whole-batch preflight, even with --force.
+		if opts.ExistingOnly {
+			pushOpts.Force = false
+			pushOpts.ForceWithLease = upstreamBranch + ":" + opts.ExpectedRemoteHead.String()
+		} else if !opts.Force {
 			existingHash, err := h.Repository.PeelToCommit(ctx, remote.Push+"/"+upstreamBranch)
 			if err == nil {
 				pushOpts.ForceWithLease = upstreamBranch + ":" + existingHash.String()
@@ -954,7 +1237,17 @@ func (h *Handler) submitBranch(
 				Force:    opts.Force,
 				NoVerify: opts.NoVerify,
 			}
-			if !opts.Force {
+			if opts.ExistingOnly {
+				if !opts.Force &&
+					!h.Repository.IsAncestor(ctx, opts.ExpectedRemoteHead, commitHash) {
+					return status, fmt.Errorf(
+						"existing-only submission would rewrite branch %q; rerun with --force to authorize the history rewrite",
+						upstreamBranch,
+					)
+				}
+				pushOpts.Force = false
+				pushOpts.ForceWithLease = upstreamBranch + ":" + opts.ExpectedRemoteHead.String()
+			} else if !opts.Force {
 				// Force push, but only if the ref is exactly
 				// where we think it is.
 				existingHash, err := h.Repository.PeelToCommit(ctx, remote.Push+"/"+upstreamBranch)
@@ -963,9 +1256,11 @@ func (h *Handler) submitBranch(
 				}
 			}
 
-			if err := h.Worktree.Push(ctx, pushOpts); err != nil {
-				log.Error("Push failed. Branch may have been updated by someone else. Try with --force.")
-				return status, fmt.Errorf("push branch: %w", err)
+			if !opts.AlreadyPushed {
+				if err := h.Worktree.Push(ctx, pushOpts); err != nil {
+					log.Error("Push failed. Branch may have been updated by someone else. Try with --force.")
+					return status, fmt.Errorf("push branch: %w", err)
+				}
 			}
 		}
 

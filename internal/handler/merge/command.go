@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"go.abhg.dev/gs/internal/forge"
 	"go.abhg.dev/gs/internal/scriptrun"
@@ -22,12 +23,14 @@ type mergeRequester interface {
 type forgeMergeRequester struct {
 	Repository forge.Repository // required
 	Method     forge.MergeMethod
+	Timeout    time.Duration
 }
 
 func (r *forgeMergeRequester) RequestMerge(ctx context.Context, item *mergeItem) error {
 	return r.Repository.MergeChange(ctx, item.changeID, forge.MergeChangeOptions{
 		Method:   r.Method,
 		HeadHash: item.headHash,
+		Timeout:  r.Timeout,
 	})
 }
 

@@ -297,6 +297,15 @@ func (h *Handler) MergeStack(
 	); err != nil {
 		return err
 	}
+	if opts.Command == "" && opts.ReadyCommand == "" {
+		handled, err := h.mergeNativeStack(ctx, plan.items, opts)
+		if err != nil {
+			return err
+		}
+		if handled {
+			return nil
+		}
+	}
 
 	return h.executePlan(ctx, plan.items, mergeExecutionOptions{
 		Method:          opts.Method,
@@ -307,6 +316,114 @@ func (h *Handler) MergeStack(
 		FailFast:        opts.FailFast,
 		SyncBeforeStart: plan.syncBeforeStart,
 	})
+}
+
+func (h *Handler) mergeNativeStack(
+	ctx context.Context,
+	items []*mergeItem,
+	opts *Options,
+) (bool, error) {
+	changes := make([]forge.ChangeID, len(items))
+	for i, item := range items {
+		changes[i] = item.changeID
+	}
+	native, err := forge.CanMergeChangeStack(ctx, h.RemoteRepository, changes)
+	if err != nil {
+		return true, err
+	}
+	if !native {
+		return false, nil
+	}
+	readiness := &mergePlanExecutor{
+		RemoteRepository: h.RemoteRepository,
+		Progress:         newLogMergeProgress(h.Log),
+		ReadinessChecker: &forgeReadinessChecker{Repository: h.RemoteRepository},
+		ReadyTimeout:     opts.ReadyTimeout,
+	}
+	for _, item := range items {
+		if err := readiness.awaitChangeHead(ctx, item); err != nil {
+			return true, fmt.Errorf(
+				"%s: wait for change head: %w",
+				item.branch,
+				err,
+			)
+		}
+		if err := readiness.awaitMergeability(ctx, item); err != nil {
+			return true, fmt.Errorf(
+				"%s: wait for merge readiness: %w",
+				item.branch,
+				err,
+			)
+		}
+	}
+	handled, err := forge.MergeChangeStack(
+		ctx,
+		h.RemoteRepository,
+		changes,
+		forge.MergeChangeOptions{
+			HeadHash: items[len(items)-1].headHash,
+			Method:   opts.Method,
+			Timeout:  opts.MergeTimeout,
+		},
+	)
+	if err != nil || !handled {
+		return handled, err
+	}
+
+	timeout := opts.MergeTimeout
+	if timeout == 0 {
+		timeout = defaultMergeTimeout
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	delay := 500 * time.Millisecond
+	for {
+		statuses, err := h.RemoteRepository.ChangeStatuses(waitCtx, changes)
+		if err != nil {
+			return true, fmt.Errorf("poll native stack merge: %w", err)
+		}
+		if len(statuses) != len(changes) {
+			return true, fmt.Errorf(
+				"poll native stack merge: forge returned %d statuses for %d changes",
+				len(statuses),
+				len(changes),
+			)
+		}
+
+		allMerged := true
+		for i, status := range statuses {
+			switch status.State {
+			case forge.ChangeMerged:
+			case forge.ChangeOpen:
+				allMerged = false
+			case forge.ChangeClosed:
+				return true, fmt.Errorf(
+					"native stack merge closed %s (%v) without merging",
+					items[i].branch,
+					items[i].changeID,
+				)
+			}
+		}
+		if allMerged {
+			break
+		}
+		if err := sleep(waitCtx, delay); err != nil {
+			return true, fmt.Errorf(
+				"timed out after %v waiting for native stack merge",
+				timeout,
+			)
+		}
+		delay = min(delay*2, 8*time.Second)
+	}
+
+	if err := h.Sync.SyncTrunk(ctx, &sync.TrunkOptions{
+		ClosedChanges: sync.ClosedChangesIgnore,
+	}); err != nil {
+		return true, fmt.Errorf("sync trunk after native stack merge: %w", err)
+	}
+	h.Log.Infof("All %d change(s) merged.", len(items))
+	return true, nil
 }
 
 // mergeItem is one queue item in a downstack merge plan.
@@ -429,6 +546,9 @@ func (h *Handler) buildPlanFromBranches(
 	}
 	if len(items) == 0 {
 		return mergePlan{}, nil
+	}
+	if err := forge.ValidateChangeIDs(ctx, h.RemoteRepository, ids); err != nil {
+		return mergePlan{}, fmt.Errorf("validate persisted change identity: %w", err)
 	}
 
 	statuses, err := h.RemoteRepository.ChangeStatuses(ctx, ids)
@@ -671,6 +791,7 @@ func (h *Handler) executePlan(
 	mergeRequester := mergeRequester(&forgeMergeRequester{
 		Repository: h.RemoteRepository,
 		Method:     opts.Method,
+		Timeout:    opts.MergeTimeout,
 	})
 	if opts.Command != "" {
 		mergeRequester = &commandMergeRequester{

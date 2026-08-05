@@ -25,11 +25,14 @@ func TestHandler_Absorb(t *testing.T) {
 			Service:  svc,
 			Restack:  restack,
 		}).Absorb(t.Context(), &Request{
-			Restack: spice.AutoRestackUpstack,
+			Options: &Options{
+				Restack:   spice.AutoRestackUpstack,
+				WholeFile: true,
+			},
 		})
 
 		require.NoError(t, err)
-		assert.Equal(t, git.AbsorbRequest{Base: "main"}, wt.absorbRequest)
+		assert.Equal(t, git.AbsorbRequest{Base: "main", WholeFile: true}, wt.absorbRequest)
 		assert.Equal(t, "feature", restack.branch)
 		assert.True(t, restack.skipStart)
 	})
@@ -43,9 +46,32 @@ func TestHandler_Absorb(t *testing.T) {
 			Store:    fakeStore{trunk: "main"},
 			Service:  &fakeService{graph: testGraph(t)},
 			Restack:  restack,
-		}).Absorb(t.Context(), &Request{Restack: spice.AutoRestackNone})
+		}).Absorb(t.Context(), &Request{
+			Options: &Options{Restack: spice.AutoRestackNone},
+		})
 
 		require.NoError(t, err)
+		assert.Empty(t, restack.branch)
+	})
+
+	t.Run("dryRunDoesNotRestack", func(t *testing.T) {
+		wt := &fakeWorktree{branch: "feature"}
+		restack := new(fakeRestack)
+
+		err := (&Handler{
+			Worktree: wt,
+			Store:    fakeStore{trunk: "main"},
+			Service:  &fakeService{graph: testGraph(t)},
+			Restack:  restack,
+		}).Absorb(t.Context(), &Request{
+			Options: &Options{
+				Restack: spice.AutoRestackUpstack,
+				DryRun:  true,
+			},
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, git.AbsorbRequest{Base: "main", DryRun: true}, wt.absorbRequest)
 		assert.Empty(t, restack.branch)
 	})
 
@@ -55,7 +81,9 @@ func TestHandler_Absorb(t *testing.T) {
 			Store:    fakeStore{trunk: "main"},
 			Service:  &fakeService{graph: testGraph(t)},
 			Restack:  new(fakeRestack),
-		}).Absorb(t.Context(), &Request{Restack: spice.AutoRestackNone})
+		}).Absorb(t.Context(), &Request{
+			Options: &Options{Restack: spice.AutoRestackNone},
+		})
 
 		assert.ErrorContains(t, err, "cannot absorb changes on trunk")
 	})
@@ -75,7 +103,9 @@ func TestHandler_Absorb(t *testing.T) {
 			Service:  svc,
 			Restack:  new(fakeRestack),
 		}).Absorb(t.Context(), &Request{
-			Restack:         spice.AutoRestackNone,
+			Options: &Options{
+				Restack: spice.AutoRestackNone,
+			},
 			ContinueCommand: []string{"commit", "absorb", "--no-restack"},
 		})
 

@@ -12,17 +12,18 @@ import (
 )
 
 type commitAbsorbCmd struct {
-	Restack spice.AutoRestackMode `negatable:"" default:"upstack" config:"commitAbsorb.restack" enum:"none,upstack" help:"Whether to restack upstack branches."`
+	absorb.Options
 }
 
 func (*commitAbsorbCmd) Help() string {
 	return text.Dedent(`
 		Apply staged changes to the commits they belong to in the current branch.
-		The current Git-Spice branch base limits which commits can be absorbed.
-		Branches above the current branch are restacked by default.
-		Use --no-restack to leave them untouched.
+		The tracked Git-Spice branch base limits which commits can be absorbed,
+		and branches above the current branch are restacked by default.
 
-		This command requires the git-absorb executable.
+		This command uses git-absorb and intentionally does not expose
+		--base, --no-limit, or --force-detach because they would escape
+		the current tracked stack branch.
 	`)
 }
 
@@ -50,15 +51,36 @@ func (cmd *commitAbsorbCmd) AfterApply(kctx *kong.Context) error {
 
 func (cmd *commitAbsorbCmd) Run(ctx context.Context, handler AbsorbHandler) error {
 	return handler.Absorb(ctx, &absorb.Request{
-		Restack:         cmd.Restack,
+		Options:         &cmd.Options,
 		ContinueCommand: cmd.continueCommand(),
 	})
 }
 
 func (cmd *commitAbsorbCmd) continueCommand() []string {
 	command := []string{"commit", "absorb"}
-	if cmd.Restack.None() {
+	if cmd.Options.Restack.None() {
 		command = append(command, "--no-restack")
+	}
+	if cmd.Options.DryRun {
+		command = append(command, "--dry-run")
+	}
+	if cmd.Options.ForceAuthor {
+		command = append(command, "--force-author")
+	}
+	if cmd.Options.Force {
+		command = append(command, "--force")
+	}
+	if cmd.Options.WholeFile {
+		command = append(command, "--whole-file")
+	}
+	if cmd.Options.OneFixupPerCommit {
+		command = append(command, "--one-fixup-per-commit")
+	}
+	if cmd.Options.Squash {
+		command = append(command, "--squash")
+	}
+	if cmd.Options.Message != "" {
+		command = append(command, "--message", cmd.Options.Message)
 	}
 	return command
 }

@@ -35,6 +35,8 @@ type githubGateway interface {
 	LabelIDs(context.Context, string, string, []string) ([]github.ID, error)
 	MarkPullRequestReadyForReview(context.Context, github.ID) error
 	MergePullRequest(context.Context, *github.MergePullRequestInput) error
+	MergePullRequestAsync(context.Context, string, string, int, *github.MergePullRequestAsyncInput) (*github.MergePullRequestAsyncResult, error)
+	PullRequestAsyncMerge(context.Context, string, string, int, string) (*github.MergePullRequestAsyncResult, error)
 	PullRequest(context.Context, string, string, int) (*github.PullRequest, error)
 	PullRequestComments(context.Context, github.ID, *github.PaginationOptions) iter.Seq2[*github.Comment, error]
 	PullRequestID(context.Context, string, string, int) (github.ID, error)

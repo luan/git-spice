@@ -318,10 +318,13 @@ func (h *Handler) ListBranches(ctx context.Context, req *BranchesRequest) (*Bran
 	if req.Options.All {
 		branchesToLog = branchGraph.Names()
 	} else {
-		// If req.Branch is not tracked,
-		// we still want to list all branches.
-		if _, ok := branchGraph.Lookup(req.Branch); !ok {
+		if req.Branch == branchGraph.Trunk() {
 			branchesToLog = branchGraph.Names()
+		} else if _, ok := branchGraph.Lookup(req.Branch); !ok {
+			return nil, fmt.Errorf(
+				"current branch %q is not tracked; use --all to list other stacks",
+				req.Branch,
+			)
 		} else {
 			branchesToLog = branchGraph.Stack(req.Branch)
 		}

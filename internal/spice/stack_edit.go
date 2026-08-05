@@ -47,36 +47,85 @@ func (s *Service) StackReorder(ctx context.Context, req *StackReorderRequest) (*
 	must.NotBeEmptyf(req.Stack, "stack cannot be empty")
 	must.NotContainf(req.Stack, s.store.Trunk(), "cannot reorder trunk")
 
-	bottomName := req.Stack[0]
-	bottom, err := s.LookupBranch(ctx, bottomName)
+	original, err := s.ListStackLinear(ctx, req.Stack[0])
 	if err != nil {
-		return nil, fmt.Errorf("look up lowest branch (%q): %w", bottomName, err)
+		return nil, fmt.Errorf("list stack: %w", err)
+	}
+	if original[0] == s.store.Trunk() {
+		original = original[1:]
+	}
+	if !sameBranches(original, req.Stack) {
+		return nil, fmt.Errorf(
+			"branches must list the complete linear stack exactly once: have %v, want a permutation of %v",
+			req.Stack,
+			original,
+		)
 	}
 
+	return s.reorderStack(ctx, original[0], req.Stack)
+}
+
+func (s *Service) reorderStack(
+	ctx context.Context,
+	originalBottom string,
+	branches []string,
+) (*StackEditResult, error) {
+	bottom, err := s.LookupBranch(ctx, originalBottom)
+	if err != nil {
+		return nil, fmt.Errorf("look up lowest branch (%q): %w", originalBottom, err)
+	}
+
+	resumeGHStackSync := s.suspendGHStackSync()
+
 	base := bottom.Base
-	for idx, branch := range req.Stack {
+	for idx, branch := range branches {
 		ontoReq := BranchOntoRequest{
 			Branch: branch,
 			Onto:   base,
 		}
 
 		if len(bottom.MergedDownstack) > 0 {
-			if idx == 0 && branch != bottomName {
+			if idx == 0 && branch != originalBottom {
 				ontoReq.MergedDownstack = &bottom.MergedDownstack
 			}
-			if idx > 0 && branch == bottomName {
+			if idx > 0 && branch == originalBottom {
 				var empty []json.RawMessage
 				ontoReq.MergedDownstack = &empty
 			}
 		}
 
 		if err := s.BranchOnto(ctx, &ontoReq); err != nil {
+			resumeGHStackSync()
 			return nil, fmt.Errorf("branch %v onto %v: %w", branch, base, err)
 		}
 		base = branch
 	}
+	resumeGHStackSync()
+	if err := s.syncGHStack(ctx); err != nil {
+		return nil, fmt.Errorf("sync gh-stack state: %w", err)
+	}
 
-	return &StackEditResult{Stack: req.Stack}, nil
+	return &StackEditResult{Stack: branches}, nil
+}
+
+func sameBranches(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]struct{}, len(a))
+	for _, branch := range a {
+		seen[branch] = struct{}{}
+	}
+	if len(seen) != len(a) {
+		return false
+	}
+	for _, branch := range b {
+		if _, ok := seen[branch]; !ok {
+			return false
+		}
+		delete(seen, branch)
+	}
+	return len(seen) == 0
 }
 
 // StackEdit allows the user to edit the order of branches in a stack.
@@ -92,7 +141,7 @@ func (s *Service) StackEdit(ctx context.Context, req *StackEditRequest) (*StackE
 	if err != nil {
 		return nil, err
 	}
-	return s.StackReorder(ctx, &StackReorderRequest{Stack: branches})
+	return s.reorderStack(ctx, req.Stack[0], branches)
 }
 
 // editStackFile opens the editor with the given branches

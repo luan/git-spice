@@ -54,6 +54,27 @@ func TestPushOptions_NoVerify(t *testing.T) {
 			},
 			wantCmd: []string{"push", "--force-with-lease=main:abc123", "--no-verify", "origin", "HEAD:refs/heads/main"},
 		},
+		{
+			name: "AtomicRefs",
+			opts: PushOptions{
+				Remote:          "origin",
+				Atomic:          true,
+				ForceWithLeases: []string{"one:abc123", "two:def456"},
+				Refspecs: []Refspec{
+					"head-one:refs/heads/one",
+					"head-two:refs/heads/two",
+				},
+			},
+			wantCmd: []string{
+				"push",
+				"--atomic",
+				"--force-with-lease=one:abc123",
+				"--force-with-lease=two:def456",
+				"origin",
+				"head-one:refs/heads/one",
+				"head-two:refs/heads/two",
+			},
+		},
 	}
 
 	for _, tt := range tests {

@@ -27,17 +27,26 @@ type PushOptions struct {
 	// provided that our knowledge of the current value is up-to-date.
 	ForceWithLease string
 
+	// ForceWithLeases applies exact expected values to multiple refs.
+	ForceWithLeases []string
+
 	// Refspec is the refspec to push.
 	// If empty, the current branch is pushed to the remote.
 	Refspec Refspec
 
+	// Refspecs are additional refspecs to push.
+	Refspecs []Refspec
+
 	// NoVerify indicates that pre-push hooks should be bypassed.
 	NoVerify bool
+
+	// Atomic requires all ref updates to succeed or none to be applied.
+	Atomic bool
 }
 
 // Push pushes objects and refs to a remote repository.
 func (w *Worktree) Push(ctx context.Context, opts PushOptions) error {
-	if opts.Remote == "" && opts.Refspec == "" {
+	if opts.Remote == "" && opts.Refspec == "" && len(opts.Refspecs) == 0 {
 		return errors.New("push: no remote or refspec specified")
 	}
 
@@ -47,7 +56,13 @@ func (w *Worktree) Push(ctx context.Context, opts PushOptions) error {
 		silog.NonZero("lease", forceWithLease(opts.ForceWithLease)))
 
 	var args []string
+	if opts.Atomic {
+		args = append(args, "--atomic")
+	}
 	if lease := opts.ForceWithLease; lease != "" {
+		args = append(args, "--force-with-lease="+lease)
+	}
+	for _, lease := range opts.ForceWithLeases {
 		args = append(args, "--force-with-lease="+lease)
 	}
 	if opts.Force {
@@ -61,6 +76,9 @@ func (w *Worktree) Push(ctx context.Context, opts PushOptions) error {
 	}
 	if opts.Refspec != "" {
 		args = append(args, opts.Refspec.String())
+	}
+	for _, refspec := range opts.Refspecs {
+		args = append(args, refspec.String())
 	}
 
 	cmd := w.gitCmd(ctx, "push", args...).CaptureStdout()

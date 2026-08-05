@@ -31,9 +31,10 @@ type Options struct {
 
 	SkipRestackCheck SkipRestackCheck `config:"submit.skipRestackCheck" hidden:"" help:"When to skip the restack check. Must be one of: never, trunk, always." default:"never"`
 
-	Force      bool  `help:"Force push, bypassing safety checks"`
-	NoVerify   bool  `help:"Bypass pre-push hooks when pushing to the remote." released:"v0.15.0"`
-	UpdateOnly *bool `short:"u" negatable:"" help:"Only update existing change requests, do not create new ones"`
+	Force        bool  `help:"Force push, bypassing safety checks"`
+	NoVerify     bool  `help:"Bypass pre-push hooks when pushing to the remote." released:"v0.15.0"`
+	UpdateOnly   *bool `short:"u" negatable:"" help:"Only update existing change requests, do not create new ones"`
+	ExistingOnly bool  `name:"existing-only" help:"Require every branch to have an associated open change request before pushing"`
 
 	// DraftDefault is used to set the default draft value
 	// when creating new Change Requests.

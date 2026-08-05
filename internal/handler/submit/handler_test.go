@@ -775,3 +775,110 @@ func buildStaleBaseTestGraph(
 		Branches: branches,
 	})
 }
+
+type validatingSubmitRepository struct {
+	forge.Repository
+	validate func(context.Context, []forge.ChangeID) error
+}
+
+func (r validatingSubmitRepository) ValidateChangeStack(
+	ctx context.Context,
+	changes []forge.ChangeID,
+) error {
+	return r.validate(ctx, changes)
+}
+
+func TestHandler_checkExistingChanges_validatesNativeStack(t *testing.T) {
+	mockCtrl := gomock.NewController(t)
+	graph := buildStaleBaseTestGraph(t, "main", []spice.LoadBranchItem{
+		{
+			Name:           "feat1",
+			Head:           "head-1",
+			Base:           "main",
+			Change:         submitFakeChange("pr-1"),
+			UpstreamBranch: "feat1",
+		},
+		{
+			Name:           "feat2",
+			Head:           "head-2",
+			Base:           "feat1",
+			Change:         submitFakeChange("pr-2"),
+			UpstreamBranch: "feat2",
+		},
+	})
+
+	mockRepo := forgetest.NewMockRepository(mockCtrl)
+	changeIDs := []forge.ChangeID{
+		submitFakeChangeID("pr-1"),
+		submitFakeChangeID("pr-2"),
+	}
+	mockRepo.EXPECT().
+		ChangeStatuses(gomock.Any(), changeIDs).
+		Return([]forge.ChangeStatus{
+			{State: forge.ChangeOpen},
+			{State: forge.ChangeOpen},
+		}, nil)
+	mockRepo.EXPECT().
+		FindChangesByBranch(gomock.Any(), "feat1", forge.FindChangesOptions{
+			State:          forge.ChangeOpen,
+			PushRepository: stubRepositoryID("alice/repo"),
+			Limit:          100,
+		}).
+		Return([]*forge.FindChangeItem{{
+			ID:       changeIDs[0],
+			State:    forge.ChangeOpen,
+			HeadHash: "head-1",
+			BaseName: "main",
+		}}, nil)
+	mockRepo.EXPECT().
+		FindChangesByBranch(gomock.Any(), "feat2", forge.FindChangesOptions{
+			State:          forge.ChangeOpen,
+			PushRepository: stubRepositoryID("alice/repo"),
+			Limit:          100,
+		}).
+		Return([]*forge.FindChangeItem{{
+			ID:       changeIDs[1],
+			State:    forge.ChangeOpen,
+			HeadHash: "head-2",
+			BaseName: "feat1",
+		}}, nil)
+
+	mockForge := forgetest.NewMockForge(mockCtrl)
+	mockForge.EXPECT().ID().Return("github").AnyTimes()
+
+	handler := &Handler{
+		FindRemote: func(context.Context) (state.Remote, error) {
+			return state.Remote{Upstream: "origin", Push: "origin"}, nil
+		},
+		ResolveRepository: func(
+			context.Context,
+			string,
+		) (forge.Forge, forge.RepositoryID, error) {
+			return mockForge, stubRepositoryID("alice/repo"), nil
+		},
+		OpenRepository: func(
+			context.Context,
+			forge.Forge,
+			forge.RepositoryID,
+		) (forge.Repository, error) {
+			return validatingSubmitRepository{
+				Repository: mockRepo,
+				validate: func(_ context.Context, got []forge.ChangeID) error {
+					assert.Equal(t, changeIDs, got)
+					return errors.New("native stack order differs")
+				},
+			}, nil
+		},
+	}
+
+	_, err := handler.checkExistingChanges(
+		t.Context(),
+		graph,
+		[]string{"feat1", "feat2"},
+		true,
+		&Options{},
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "validate existing change stack")
+	assert.ErrorContains(t, err, "native stack order differs")
+}

@@ -2,6 +2,7 @@
 package absorb
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -42,14 +43,28 @@ type Handler struct {
 	Restack  RestackHandler // required when restacking
 }
 
+// Options configures a stack-aware absorb operation.
+type Options struct {
+	Restack spice.AutoRestackMode `negatable:"" default:"upstack" config:"commitAbsorb.restack" enum:"none,upstack" help:"Whether to restack upstack branches."`
+
+	DryRun            bool   `help:"Show fixups without changing commits."`
+	ForceAuthor       bool   `help:"Allow fixups to commits authored by someone else."`
+	Force             bool   `short:"f" help:"Skip git-absorb safety checks."`
+	WholeFile         bool   `short:"w" help:"Match changes against complete files."`
+	OneFixupPerCommit bool   `short:"F" help:"Create at most one fixup per commit."`
+	Squash            bool   `short:"s" help:"Create squash commits instead of fixups."`
+	Message           string `short:"m" help:"Commit message body for generated fixups."`
+}
+
 // Request configures an absorb operation.
 type Request struct {
-	Restack         spice.AutoRestackMode
+	Options         *Options // optional
 	ContinueCommand []string
 }
 
 // Absorb applies staged changes to commits in the current tracked branch.
 func (h *Handler) Absorb(ctx context.Context, req *Request) error {
+	opts := cmp.Or(req.Options, &Options{})
 	branch, err := h.Worktree.CurrentBranch(ctx)
 	if err != nil {
 		if errors.Is(err, git.ErrDetachedHead) {
@@ -73,7 +88,17 @@ func (h *Handler) Absorb(ctx context.Context, req *Request) error {
 		return fmt.Errorf("branch %s has no tracked base", branch)
 	}
 
-	if err := h.Worktree.Absorb(ctx, git.AbsorbRequest{Base: tracked.Base}); err != nil {
+	absorbReq := git.AbsorbRequest{
+		Base:              tracked.Base,
+		DryRun:            opts.DryRun,
+		ForceAuthor:       opts.ForceAuthor,
+		Force:             opts.Force,
+		WholeFile:         opts.WholeFile,
+		OneFixupPerCommit: opts.OneFixupPerCommit,
+		Squash:            opts.Squash,
+		Message:           opts.Message,
+	}
+	if err := h.Worktree.Absorb(ctx, absorbReq); err != nil {
 		if _, stateErr := h.Worktree.RebaseState(ctx); stateErr == nil {
 			command := req.ContinueCommand
 			if len(command) == 0 {
@@ -89,7 +114,7 @@ func (h *Handler) Absorb(ctx context.Context, req *Request) error {
 		return fmt.Errorf("absorb changes: %w", err)
 	}
 
-	if req.Restack.None() {
+	if opts.DryRun || opts.Restack.None() {
 		return nil
 	}
 	return h.Restack.RestackUpstack(ctx, &restack.UpstackRequest{

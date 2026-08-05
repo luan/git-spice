@@ -1,5 +1,5 @@
-# When looking for existing CRs,
-# 'branch submit' will disregard CRs that don't match HEAD.
+# Submission fails closed when the intended remote branch belongs to a
+# different commit, instead of silently creating a suffixed branch.
 
 as 'Test <test@example.com>'
 at '2024-11-06T05:31:32Z'
@@ -31,19 +31,11 @@ gs repo init --reset --trunk=main --remote=origin
 git add feat2.txt
 gs bc feature -m 'Add feature 2'
 
-# Since we don't have an upstream branch associated,
-# gs will want to use 'feature' as the branch name.
-# This will fail, because 'feature' is already taken
-# by the CR we created earlier.
-gs branch submit --fill
-stderr 'Ignoring CR #\d+ with the same branch name'
-stderr 'remote HEAD .+? does not match local HEAD'
-stderr 'If this is incorrect, cancel this operation.*git pull.*and retry'
-stderr 'Branch name already in use in remote ''origin'''
-stderr 'Using upstream name ''feature-2'''
-
-git rev-parse --abbrev-ref feature@{upstream}
-stdout 'origin/feature-2'
+# The existing remote branch and CR have a different HEAD. Submission must
+# preserve their identity and refuse to create feature-2.
+! gs branch submit --fill
+stderr 'remote branch "feature" already exists with a different HEAD'
+! git ls-remote --exit-code --heads origin feature-2
 
 -- repo/feat1.txt --
 feature 1

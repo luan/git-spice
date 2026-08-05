@@ -105,6 +105,24 @@ type PR struct {
 
 var _ forge.ChangeID = (*PR)(nil)
 
+// ValidateChangeIDs rejects legacy or incomplete persisted PR identity before
+// any mutation-capable workflow.
+func (*Repository) ValidateChangeIDs(
+	_ context.Context,
+	changes []forge.ChangeID,
+) error {
+	for _, change := range changes {
+		pr := mustPR(change)
+		if pr.GQLID == "" {
+			return fmt.Errorf(
+				"pull request #%d has no persisted GitHub node ID; refresh native stack state before updating",
+				pr.Number,
+			)
+		}
+	}
+	return nil
+}
+
 func mustPR(cid forge.ChangeID) *PR {
 	pr, ok := cid.(*PR)
 	if !ok {

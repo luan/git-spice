@@ -1,0 +1,36 @@
+# Existing-only updates require --force before rewriting remote history.
+
+as 'Test <test@example.com>'
+at '2026-08-05T12:30:00Z'
+
+cd repo
+git init
+git commit --allow-empty -m 'Initial commit'
+
+shamhub-setup
+shamhub new origin alice/example.git
+shamhub register alice
+git push origin main
+
+env SHAMHUB_USERNAME=alice
+gs auth login
+
+git add feature.txt
+gs branch create feature -m feature
+gs branch submit --fill
+
+git add rewrite.txt
+git commit --amend --no-edit
+
+! gs branch submit --update-only --existing-only --fill
+stderr 'existing-only submission would rewrite branch "feature"; rerun with --force'
+
+gs branch submit --update-only --existing-only --force --fill
+shamhub dump changes
+stdout '"number": 1'
+! stdout '"number": 2'
+
+-- repo/feature.txt --
+feature
+-- repo/rewrite.txt --
+rewrite

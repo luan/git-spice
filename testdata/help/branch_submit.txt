@@ -42,6 +42,8 @@ Flags:
                                  remote.
   -u, --[no-]update-only         Only update existing change requests, do not
                                  create new ones
+      --existing-only            Require every branch to have an associated open
+                                 change request before pushing
   -l, --label=LABEL,...          Add labels to the change request. Pass multiple
                                  times or separate with commas.
   -r, --reviewer=REVIEWER,...    Add reviewers to the change request. Pass

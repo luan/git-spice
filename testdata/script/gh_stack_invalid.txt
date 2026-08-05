@@ -1,0 +1,30 @@
+# Invalid or ambiguous gh-stack state fails closed.
+
+as 'Test <test@example.com>'
+at '2026-08-06T12:45:00Z'
+
+mkdir repo
+cd repo
+git init
+git commit --allow-empty -m 'Initial commit'
+gs repo init
+git branch layer
+git checkout layer
+
+# Unknown schemas must not be guessed.
+env GH_STACK_JSON={"schemaVersion":2,"stacks":[{"trunk":{"branch":"main"},"branches":[{"branch":"layer","base":""}]}]}
+exec sh -c 'printf "%s\n" "$GH_STACK_JSON" > .git/gh-stack'
+! gs log short
+stderr 'unsupported gh-stack state schema version 2'
+
+# A branch cannot belong to two local gh-stacks.
+env GH_STACK_JSON={"schemaVersion":1,"stacks":[{"trunk":{"branch":"main"},"branches":[{"branch":"layer","base":""}]},{"trunk":{"branch":"main"},"branches":[{"branch":"layer","base":""}]}]}
+exec sh -c 'printf "%s\n" "$GH_STACK_JSON" > .git/gh-stack'
+! gs log short
+stderr 'current branch "layer" belongs to multiple gh-stacks'
+
+# Stored base identities must resolve locally.
+env GH_STACK_JSON={"schemaVersion":1,"stacks":[{"trunk":{"branch":"main"},"branches":[{"branch":"layer","base":"deadbeef"}]}]}
+exec sh -c 'printf "%s\n" "$GH_STACK_JSON" > .git/gh-stack'
+! gs log short
+stderr 'resolve gh-stack base for branch "layer"'

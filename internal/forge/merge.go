@@ -4,6 +4,7 @@ import (
 	"encoding"
 	"fmt"
 	"strings"
+	"time"
 
 	"go.abhg.dev/gs/internal/git"
 )
@@ -22,6 +23,10 @@ type MergeChangeOptions struct {
 	// Not all forges support this; unsupported forges
 	// ignore the field.
 	HeadHash git.Hash
+
+	// Timeout bounds forge-managed asynchronous merge processing.
+	// If zero, the forge chooses a default.
+	Timeout time.Duration
 }
 
 // MergeMethod names a forge-level strategy for merging a change request.

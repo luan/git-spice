@@ -353,6 +353,7 @@ func (tx *BranchTx) Delete(ctx context.Context, name string) error {
 // Commit persists all planned changes to the store.
 // If there are no changes, this is a no-op.
 func (tx *BranchTx) Commit(ctx context.Context, msg string) error {
+	changed := len(tx.sets) > 0 || len(tx.dels) > 0
 	req := updateBranchesRequest{
 		Sets:    make([]setBranchStateRequest, 0, len(tx.sets)),
 		Deletes: slices.Collect(maps.Keys(tx.dels)),
@@ -375,6 +376,11 @@ func (tx *BranchTx) Commit(ctx context.Context, msg string) error {
 	clear(tx.sets)
 	clear(tx.dels)
 	clear(tx.states)
+	if changed && tx.store.branchCommitHook != nil {
+		if err := tx.store.branchCommitHook(ctx); err != nil {
+			return fmt.Errorf("after commit: %w", err)
+		}
+	}
 	return nil
 }
 

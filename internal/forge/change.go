@@ -1,7 +1,9 @@
 package forge
 
 import (
+	"context"
 	"fmt"
+	"reflect"
 
 	"go.abhg.dev/gs/internal/git"
 )
@@ -9,6 +11,24 @@ import (
 // ChangeID is a unique identifier for a change in a repository.
 type ChangeID interface {
 	String() string
+}
+
+// SameChangeID reports whether two change IDs identify the same persisted
+// forge object, including opaque forge-specific identity fields.
+func SameChangeID(a, b ChangeID) bool {
+	return reflect.DeepEqual(a, b)
+}
+
+// ValidateChangeIDs verifies that persisted change IDs contain the
+// forge-specific identity required for safe mutation.
+func ValidateChangeIDs(ctx context.Context, repo Repository, changes []ChangeID) error {
+	validator, ok := repo.(interface {
+		ValidateChangeIDs(context.Context, []ChangeID) error
+	})
+	if !ok {
+		return nil
+	}
+	return validator.ValidateChangeIDs(ctx, changes)
 }
 
 // ChangeMetadata defines Forge-specific per-change metadata.

@@ -3,15 +3,24 @@ Usage: gs commit (c) absorb [flags]
 Absorb staged changes into matching commits
 
 Apply staged changes to the commits they belong to in the current branch.
-The current Git-Spice branch base limits which commits can be absorbed. Branches
-above the current branch are restacked by default. Use --no-restack to leave
-them untouched.
+The tracked Git-Spice branch base limits which commits can be absorbed,
+and branches above the current branch are restacked by default.
 
-This command requires the git-absorb executable.
+This command uses git-absorb and intentionally does not expose --base,
+--no-limit, or --force-detach because they would escape the current tracked
+stack branch.
 
 Flags:
-  --[no-]restack    Whether to restack upstack branches. (🔧
-                    spice.commitAbsorb.restack)
+      --[no-]restack            Whether to restack upstack branches.
+                                (🔧 spice.commitAbsorb.restack)
+      --dry-run                 Show fixups without changing commits.
+      --force-author            Allow fixups to commits authored by someone
+                                else.
+  -f, --force                   Skip git-absorb safety checks.
+  -w, --whole-file              Match changes against complete files.
+  -F, --one-fixup-per-commit    Create at most one fixup per commit.
+  -s, --squash                  Create squash commits instead of fixups.
+  -m, --message=STRING          Commit message body for generated fixups.
 
 Global Flags:
   -h, --help           Show help for the command

@@ -2847,3 +2847,122 @@ func assertSubmitUpdate(
 		return nil
 	}
 }
+
+type nativeStackMergeRepository struct {
+	forge.Repository
+	merge func(context.Context, []forge.ChangeID, forge.MergeChangeOptions) (bool, error)
+}
+
+func (r nativeStackMergeRepository) MergeChangeStack(
+	ctx context.Context,
+	changes []forge.ChangeID,
+	opts forge.MergeChangeOptions,
+) (bool, error) {
+	return r.merge(ctx, changes, opts)
+}
+
+func (nativeStackMergeRepository) CanMergeChangeStack(
+	context.Context,
+	[]forge.ChangeID,
+) (bool, error) {
+	return true, nil
+}
+
+func TestHandler_mergeNativeStack(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	changes := []forge.ChangeID{
+		fakeChangeID("pr-1"),
+		fakeChangeID("pr-2"),
+	}
+	mockRepo := forgetest.NewMockRepository(ctrl)
+	mockRepo.EXPECT().
+		ChangeStatuses(gomock.Any(), []forge.ChangeID{changes[0]}).
+		Return([]forge.ChangeStatus{{
+			State:    forge.ChangeOpen,
+			HeadHash: git.Hash("bottom-head"),
+		}}, nil)
+	mockRepo.EXPECT().
+		ChangeStatuses(gomock.Any(), []forge.ChangeID{changes[1]}).
+		Return([]forge.ChangeStatus{{
+			State:    forge.ChangeOpen,
+			HeadHash: git.Hash("top-head"),
+		}}, nil)
+	mockRepo.EXPECT().
+		ChangeMergeability(gomock.Any(), gomock.Any()).
+		Return(forge.ChangeMergeability{
+			State: forge.ChangeMergeabilityReady,
+		}, nil).
+		Times(2)
+	mockRepo.EXPECT().
+		ChangeStatuses(gomock.Any(), changes).
+		Return([]forge.ChangeStatus{
+			{State: forge.ChangeMerged},
+			{State: forge.ChangeMerged},
+		}, nil)
+
+	mockSync := NewMockSyncHandler(ctrl)
+	mockSync.EXPECT().
+		SyncTrunk(gomock.Any(), &sync.TrunkOptions{
+			ClosedChanges: sync.ClosedChangesIgnore,
+		}).
+		Return(nil)
+
+	handler := &Handler{
+		Log: silog.Nop(),
+		RemoteRepository: nativeStackMergeRepository{
+			Repository: mockRepo,
+			merge: func(
+				_ context.Context,
+				got []forge.ChangeID,
+				opts forge.MergeChangeOptions,
+			) (bool, error) {
+				assert.Equal(t, changes, got)
+				assert.Equal(t, git.Hash("top-head"), opts.HeadHash)
+				assert.Equal(t, forge.MergeMethodSquash, opts.Method)
+				return true, nil
+			},
+		},
+		Sync: mockSync,
+	}
+
+	handled, err := handler.mergeNativeStack(
+		t.Context(),
+		[]*mergeItem{
+			{branch: "one", changeID: changes[0], headHash: "bottom-head"},
+			{branch: "two", changeID: changes[1], headHash: "top-head"},
+		},
+		&Options{
+			Method:       forge.MergeMethodSquash,
+			MergeTimeout: time.Second,
+		},
+	)
+	assert.True(t, handled)
+	require.NoError(t, err)
+}
+
+func TestMergePlanExecutor_awaitChangeHeadRetriesStaleStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	change := fakeChangeID("pr-1")
+	mockRepo := forgetest.NewMockRepository(ctrl)
+	gomock.InOrder(
+		mockRepo.EXPECT().
+			ChangeStatuses(gomock.Any(), []forge.ChangeID{change}).
+			Return([]forge.ChangeStatus{{HeadHash: git.Hash("stale")}}, nil),
+		mockRepo.EXPECT().
+			ChangeStatuses(gomock.Any(), []forge.ChangeID{change}).
+			Return([]forge.ChangeStatus{{HeadHash: git.Hash("expected")}}, nil),
+	)
+
+	executor := &mergePlanExecutor{
+		RemoteRepository: mockRepo,
+		Progress:         newLogMergeProgress(silog.Nop()),
+	}
+	err := executor.awaitChangeHeadWithDelay(
+		t.Context(),
+		&mergeItem{branch: "one", changeID: change, headHash: "expected"},
+		time.Second,
+		0,
+		0,
+	)
+	require.NoError(t, err)
+}
