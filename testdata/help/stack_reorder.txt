@@ -1,0 +1,20 @@
+Usage: gs stack (s) reorder <branches> ...
+
+Reorder a stack without an editor
+
+Reorder a linear stack without opening an editor. Provide every branch from
+closest to trunk to furthest from trunk.
+
+For example:
+
+    gs stack reorder foundation api docs tests
+
+Arguments:
+  <branches> ...    Branches from bottom to top
+
+Global Flags:
+  -h, --help           Show help for the command
+      --version        Print version information and quit
+  -v, --verbose        Enable verbose output ($GIT_SPICE_VERBOSE)
+  -C, --dir=DIR        Change to DIR before doing anything
+      --[no-]prompt    Whether to prompt for missing information

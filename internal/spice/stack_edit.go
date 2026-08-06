@@ -36,6 +36,49 @@ type StackEditResult struct {
 	Stack []string
 }
 
+// StackReorderRequest describes a non-interactive stack order.
+type StackReorderRequest struct {
+	// Stack lists branches from closest to trunk to furthest from trunk.
+	Stack []string
+}
+
+// StackReorder applies a non-interactive stack order.
+func (s *Service) StackReorder(ctx context.Context, req *StackReorderRequest) (*StackEditResult, error) {
+	must.NotBeEmptyf(req.Stack, "stack cannot be empty")
+	must.NotContainf(req.Stack, s.store.Trunk(), "cannot reorder trunk")
+
+	bottomName := req.Stack[0]
+	bottom, err := s.LookupBranch(ctx, bottomName)
+	if err != nil {
+		return nil, fmt.Errorf("look up lowest branch (%q): %w", bottomName, err)
+	}
+
+	base := bottom.Base
+	for idx, branch := range req.Stack {
+		ontoReq := BranchOntoRequest{
+			Branch: branch,
+			Onto:   base,
+		}
+
+		if len(bottom.MergedDownstack) > 0 {
+			if idx == 0 && branch != bottomName {
+				ontoReq.MergedDownstack = &bottom.MergedDownstack
+			}
+			if idx > 0 && branch == bottomName {
+				var empty []json.RawMessage
+				ontoReq.MergedDownstack = &empty
+			}
+		}
+
+		if err := s.BranchOnto(ctx, &ontoReq); err != nil {
+			return nil, fmt.Errorf("branch %v onto %v: %w", branch, base, err)
+		}
+		base = branch
+	}
+
+	return &StackEditResult{Stack: req.Stack}, nil
+}
+
 // StackEdit allows the user to edit the order of branches in a stack.
 // The user is presented with an editor containing the list of branches.
 //
@@ -45,47 +88,11 @@ func (s *Service) StackEdit(ctx context.Context, req *StackEditRequest) (*StackE
 	must.NotContainf(req.Stack, s.store.Trunk(), "cannot edit trunk")
 	must.NotBeBlankf(req.Editor, "editor is required")
 
-	// TODO: assert that req.Stack[0] has trunk as its base.
-	bottomName := req.Stack[0]
-	bottom, err := s.LookupBranch(ctx, req.Stack[0])
-	if err != nil {
-		return nil, fmt.Errorf("look up lowest branch (%q): %w", req.Stack[0], err)
-	}
-
 	branches, err := editStackFile(req.Editor, req.Stack)
 	if err != nil {
 		return nil, err
 	}
-
-	base := bottom.Base
-	for idx, branch := range branches {
-		req := BranchOntoRequest{
-			Branch: branch,
-			Onto:   base,
-		}
-
-		if len(bottom.MergedDownstack) > 0 {
-			// If the bottom-most branch is changing,
-			// copy the merged downstack over to it.
-			if idx == 0 && branch != bottomName {
-				req.MergedDownstack = &bottom.MergedDownstack
-			}
-
-			// Also in that case, make sure to clear it
-			// from the new position of the original bottom branch.
-			if idx > 0 && branch == bottomName {
-				var newHistory []json.RawMessage
-				req.MergedDownstack = &newHistory
-			}
-		}
-
-		if err := s.BranchOnto(ctx, &req); err != nil {
-			return nil, fmt.Errorf("branch %v onto %v: %w", branch, base, err)
-		}
-		base = branch
-	}
-
-	return &StackEditResult{Stack: branches}, nil
+	return s.StackReorder(ctx, &StackReorderRequest{Stack: branches})
 }
 
 // editStackFile opens the editor with the given branches

@@ -34,6 +34,7 @@ Stack
   stack (s) merge (m)           Merge a stack
   stack (s) restack (r)         Restack a stack
   stack (s) edit (e)            Edit the order of branches in a stack
+  stack (s) reorder             Reorder a stack without an editor
   stack (s) delete (d)          Delete all branches in a stack
   upstack (us) submit (s)       Submit a branch and those above it
   upstack (us) restack (r)      Restack a branch and its upstack
