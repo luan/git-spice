@@ -1,0 +1,21 @@
+Usage: gs commit (c) absorb [flags]
+
+Absorb staged changes into matching commits
+
+Apply staged changes to the commits they belong to in the current branch.
+The current Git-Spice branch base limits which commits can be absorbed. Branches
+above the current branch are restacked by default. Use --no-restack to leave
+them untouched.
+
+This command requires the git-absorb executable.
+
+Flags:
+  --[no-]restack    Whether to restack upstack branches. (🔧
+                    spice.commitAbsorb.restack)
+
+Global Flags:
+  -h, --help           Show help for the command
+      --version        Print version information and quit
+  -v, --verbose        Enable verbose output ($GIT_SPICE_VERBOSE)
+  -C, --dir=DIR        Change to DIR before doing anything
+      --[no-]prompt    Whether to prompt for missing information
