@@ -41,6 +41,8 @@ func TestNewRepository_stacksCapability(t *testing.T) {
 
 			_, got := repo.(forge.WithStacks)
 			assert.Equal(t, tt.want, got)
+			_, got = repo.(forge.WithMergeRange)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

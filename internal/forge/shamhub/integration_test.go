@@ -197,5 +197,6 @@ func TestIntegration(t *testing.T) {
 		Reviewers:           []string{"reviewer1", "reviewer2"},
 		Assignees:           []string{"assignee1", "assignee2"},
 		TestStacks:          true,
+		TestMergeRange:      true,
 	})
 }

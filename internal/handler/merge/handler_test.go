@@ -40,6 +40,19 @@ type fakeChangeID string
 
 func (f fakeChangeID) String() string { return string(f) }
 
+type scriptedMergeOperation struct {
+	statuses []forge.MergeOperationStatus
+	calls    int
+}
+
+func (o *scriptedMergeOperation) Status(
+	context.Context,
+) (forge.MergeOperationStatus, error) {
+	status := o.statuses[o.calls]
+	o.calls++
+	return status, nil
+}
+
 func TestOptions_mergeTimeoutDefault(t *testing.T) {
 	var got Options
 	parser, err := kong.New(&got)
@@ -75,8 +88,10 @@ func TestAwaitMerged_immediate(t *testing.T) {
 	}
 	progress := newLogMergeProgress(silog.Nop())
 	executor := &mergePlanExecutor{
-		RemoteRepository: h.RemoteRepository,
-		Repository:       h.Repository,
+		RemoteRepository: unsupportedMergeRangeRepository{
+			Repository: h.RemoteRepository,
+		},
+		Repository: h.Repository,
 
 		Service: h.Service,
 		Restack: h.Restack,
@@ -92,7 +107,12 @@ func TestAwaitMerged_immediate(t *testing.T) {
 		Method:           forge.MergeMethodDefault,
 	}
 
-	err := executor.awaitMerged(t.Context(), item)
+	items := []*mergeItem{item}
+	err := executor.awaitMerged(
+		t.Context(),
+		items,
+		newChangeCompletionChecker(h.RemoteRepository, items),
+	)
 	require.NoError(t, err)
 }
 
@@ -127,8 +147,10 @@ func TestAwaitMerged_afterPolling(t *testing.T) {
 		}
 		progress := newLogMergeProgress(silog.Nop())
 		executor := &mergePlanExecutor{
-			RemoteRepository: h.RemoteRepository,
-			Repository:       h.Repository,
+			RemoteRepository: unsupportedMergeRangeRepository{
+				Repository: h.RemoteRepository,
+			},
+			Repository: h.Repository,
 
 			Service: h.Service,
 			Restack: h.Restack,
@@ -144,8 +166,53 @@ func TestAwaitMerged_afterPolling(t *testing.T) {
 			Method:           forge.MergeMethodDefault,
 		}
 
-		err := executor.awaitMerged(t.Context(), item)
+		items := []*mergeItem{item}
+		err := executor.awaitMerged(
+			t.Context(),
+			items,
+			newChangeCompletionChecker(h.RemoteRepository, items),
+		)
 		require.NoError(t, err)
+	})
+}
+
+func TestAwaitMerged_operationAcceptedThenChangesMerge(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		items := []*mergeItem{
+			{branch: "feat1", changeID: fakeChangeID("pr-1")},
+			{branch: "feat2", changeID: fakeChangeID("pr-2")},
+		}
+		ids := []forge.ChangeID{
+			fakeChangeID("pr-1"),
+			fakeChangeID("pr-2"),
+		}
+
+		mockRepo := forgetest.NewMockRepository(ctrl)
+		mockRepo.EXPECT().
+			ChangeStatuses(gomock.Any(), ids).
+			Return([]forge.ChangeStatus{
+				{State: forge.ChangeMerged},
+				{State: forge.ChangeMerged},
+			}, nil)
+		h := newTestHandler(t, ctrl, testHandlerOpts{forgeRepo: mockRepo})
+		executor := new(mergePlanExecutor)
+		executor.Progress = newLogMergeProgress(silog.Nop())
+		executor.MergeTimeout = 2 * time.Minute
+		operation := &scriptedMergeOperation{
+			statuses: []forge.MergeOperationStatus{
+				forge.MergeOperationPending,
+				forge.MergeOperationAccepted,
+			},
+		}
+
+		changes := newChangeCompletionChecker(h.RemoteRepository, items)
+		err := executor.awaitMerged(t.Context(), items, &operationCompletionChecker{
+			operation:  operation,
+			finalState: changes,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 2, operation.calls)
 	})
 }
 
@@ -173,8 +240,10 @@ func TestAwaitMerged_respectsMergeTimeout(t *testing.T) {
 		}
 		progress := newLogMergeProgress(silog.Nop())
 		executor := &mergePlanExecutor{
-			RemoteRepository: h.RemoteRepository,
-			Repository:       h.Repository,
+			RemoteRepository: unsupportedMergeRangeRepository{
+				Repository: h.RemoteRepository,
+			},
+			Repository: h.Repository,
 
 			Service: h.Service,
 			Restack: h.Restack,
@@ -190,7 +259,12 @@ func TestAwaitMerged_respectsMergeTimeout(t *testing.T) {
 			Method:           forge.MergeMethodDefault,
 		}
 
-		err := executor.awaitMerged(t.Context(), item)
+		items := []*mergeItem{item}
+		err := executor.awaitMerged(
+			t.Context(),
+			items,
+			newChangeCompletionChecker(h.RemoteRepository, items),
+		)
 		require.Error(t, err)
 		assert.EqualError(t, err, "timed out waiting for merge")
 	})
@@ -217,8 +291,10 @@ func TestAwaitMergeability_ready(t *testing.T) {
 	}
 	progress := newLogMergeProgress(silog.Nop())
 	executor := &mergePlanExecutor{
-		RemoteRepository: h.RemoteRepository,
-		Repository:       h.Repository,
+		RemoteRepository: unsupportedMergeRangeRepository{
+			Repository: h.RemoteRepository,
+		},
+		Repository: h.Repository,
 
 		Service: h.Service,
 		Restack: h.Restack,
@@ -265,8 +341,10 @@ func TestAwaitMergeability_blocked(t *testing.T) {
 	}
 	progress := newLogMergeProgress(silog.Nop())
 	executor := &mergePlanExecutor{
-		RemoteRepository: h.RemoteRepository,
-		Repository:       h.Repository,
+		RemoteRepository: unsupportedMergeRangeRepository{
+			Repository: h.RemoteRepository,
+		},
+		Repository: h.Repository,
 
 		Service: h.Service,
 		Restack: h.Restack,
@@ -310,8 +388,10 @@ func TestAwaitMergeability_waitingZeroTimeout(t *testing.T) {
 	}
 	progress := newLogMergeProgress(silog.Nop())
 	executor := &mergePlanExecutor{
-		RemoteRepository: h.RemoteRepository,
-		Repository:       h.Repository,
+		RemoteRepository: unsupportedMergeRangeRepository{
+			Repository: h.RemoteRepository,
+		},
+		Repository: h.Repository,
 
 		Service: h.Service,
 		Restack: h.Restack,
@@ -359,8 +439,10 @@ func TestAwaitMergeability_waitingThenReady(t *testing.T) {
 		}
 		progress := newLogMergeProgress(silog.Nop())
 		executor := &mergePlanExecutor{
-			RemoteRepository: h.RemoteRepository,
-			Repository:       h.Repository,
+			RemoteRepository: unsupportedMergeRangeRepository{
+				Repository: h.RemoteRepository,
+			},
+			Repository: h.Repository,
 
 			Service: h.Service,
 			Restack: h.Restack,
@@ -402,8 +484,10 @@ func TestAwaitMergeability_unknown(t *testing.T) {
 	}
 	progress := newLogMergeProgress(silog.Nop())
 	executor := &mergePlanExecutor{
-		RemoteRepository: h.RemoteRepository,
-		Repository:       h.Repository,
+		RemoteRepository: unsupportedMergeRangeRepository{
+			Repository: h.RemoteRepository,
+		},
+		Repository: h.Repository,
 
 		Service: h.Service,
 		Restack: h.Restack,
@@ -445,8 +529,10 @@ func TestAwaitMergeability_unsupported(t *testing.T) {
 	}
 	progress := newLogMergeProgress(silog.Nop())
 	executor := &mergePlanExecutor{
-		RemoteRepository: h.RemoteRepository,
-		Repository:       h.Repository,
+		RemoteRepository: unsupportedMergeRangeRepository{
+			Repository: h.RemoteRepository,
+		},
+		Repository: h.Repository,
 
 		Service: h.Service,
 		Restack: h.Restack,
@@ -491,8 +577,10 @@ func TestAwaitMergeability_readyCommandTimeoutZeroRunsOnce(t *testing.T) {
 
 	counterPath := t.TempDir() + "/counter"
 	executor := &mergePlanExecutor{
-		RemoteRepository: h.RemoteRepository,
-		Repository:       h.Repository,
+		RemoteRepository: unsupportedMergeRangeRepository{
+			Repository: h.RemoteRepository,
+		},
+		Repository: h.Repository,
 
 		Service: h.Service,
 		Restack: h.Restack,
@@ -543,8 +631,10 @@ func TestAwaitMergeability_readyCommandTimeoutBoundsFirstRun(t *testing.T) {
 	})
 
 	executor := &mergePlanExecutor{
-		RemoteRepository: h.RemoteRepository,
-		Repository:       h.Repository,
+		RemoteRepository: unsupportedMergeRangeRepository{
+			Repository: h.RemoteRepository,
+		},
+		Repository: h.Repository,
 
 		Service: h.Service,
 		Restack: h.Restack,
@@ -602,8 +692,10 @@ func TestAwaitMergeability_readyCommandTimeoutCancelsSlowPoll(t *testing.T) {
 
 	counterPath := t.TempDir() + "/readiness-attempt"
 	executor := &mergePlanExecutor{
-		RemoteRepository: h.RemoteRepository,
-		Repository:       h.Repository,
+		RemoteRepository: unsupportedMergeRangeRepository{
+			Repository: h.RemoteRepository,
+		},
+		Repository: h.Repository,
 
 		Service: h.Service,
 		Restack: h.Restack,
@@ -2702,7 +2794,7 @@ func TestValidateSynced_errorSkipped(t *testing.T) {
 // newTestHandler supplies inert collaborators and an in-memory store
 // for fields left unset.
 type testHandlerOpts struct {
-	forgeRepo *forgetest.MockRepository
+	forgeRepo forge.Repository
 	store     Store
 	service   *MockService
 	restack   *MockRestackHandler
