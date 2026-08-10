@@ -1,0 +1,299 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 142
+        host: api.github.com
+        body: |
+            {"query":"query($owner:String!$repo:String!){repository(owner: $owner, name: $repo){id}}","variables":{"owner":"test-owner","repo":"test-repo"}}
+        headers:
+            Content-Type:
+                - application/json
+        url: https://api.github.com/graphql
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"data":{"repository":{"id":"R_kgDOMVd0xg"}}}'
+        headers:
+            Content-Type:
+                - application/json; charset=utf-8
+        status: 200 OK
+        code: 200
+        duration: 283.666125ms
+    - id: 1
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 319
+        host: api.github.com
+        body: |
+            {"query":"mutation($input:CreatePullRequestInput!){createPullRequest(input: $input){pullRequest{id,number,url}}}","variables":{"input":{"repositoryId":"R_kgDOMVd0xg","baseRefName":"main","headRefName":"stack-bottom-dW4RtWmC","title":"Native stack bottom stack-bottom-dW4RtWmC","body":"Native stack integration test"}}}
+        headers:
+            Content-Type:
+                - application/json
+        url: https://api.github.com/graphql
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"data":{"createPullRequest":{"pullRequest":{"id":"PR_kwDOMVd0xs792DzE","number":145,"url":"https://github.com/test-owner/test-repo/pull/145"}}}}'
+        headers:
+            Content-Type:
+                - application/json; charset=utf-8
+        status: 200 OK
+        code: 200
+        duration: 974.423958ms
+    - id: 2
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 336
+        host: api.github.com
+        body: |
+            {"query":"mutation($input:CreatePullRequestInput!){createPullRequest(input: $input){pullRequest{id,number,url}}}","variables":{"input":{"repositoryId":"R_kgDOMVd0xg","baseRefName":"stack-bottom-dW4RtWmC","headRefName":"stack-middle-g3WXJxSb","title":"Native stack middle stack-middle-g3WXJxSb","body":"Native stack integration test"}}}
+        headers:
+            Content-Type:
+                - application/json
+        url: https://api.github.com/graphql
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"data":{"createPullRequest":{"pullRequest":{"id":"PR_kwDOMVd0xs792D0T","number":146,"url":"https://github.com/test-owner/test-repo/pull/146"}}}}'
+        headers:
+            Content-Type:
+                - application/json; charset=utf-8
+        status: 200 OK
+        code: 200
+        duration: 1.254068917s
+    - id: 3
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 342
+        host: api.github.com
+        body: |
+            {"query":"query($owner:String!,$repo:String!,$pr0:Int!,$pr1:Int!){repository(owner: $owner, name: $repo){pr0:pullRequest(number: $pr0){state,headRepository{owner{login},name},stack{id}},pr1:pullRequest(number: $pr1){state,headRepository{owner{login},name},stack{id}}}}","variables":{"owner":"test-owner","pr0":145,"pr1":146,"repo":"test-repo"}}
+        headers:
+            Content-Type:
+                - application/json
+        url: https://api.github.com/graphql
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        body: '{"data":{"repository":{"pr0":{"state":"OPEN","headRepository":{"owner":{"login":"test-owner"},"name":"test-repo"},"stack":null},"pr1":{"state":"OPEN","headRepository":{"owner":{"login":"test-owner"},"name":"test-repo"},"stack":null}}}}'
+        headers:
+            Content-Type:
+                - application/json; charset=utf-8
+        status: 200 OK
+        code: 200
+        duration: 305.396375ms
+    - id: 4
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 28
+        host: api.github.com
+        body: |
+            {"pull_requests":[145,146]}
+        headers:
+            Content-Type:
+                - application/json
+        url: https://api.github.com/repos/test-owner/test-repo/stacks
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: 3348
+        body: '{"id":302031,"number":147,"node_id":"PRS_kwDOMVd0xs4ABJvP","url":"https://api.github.com/repos/test-owner/test-repo/stacks/147","base":{"ref":"main"},"open":true,"created_at":"2026-08-12T03:16:01Z","pull_requests":[{"url":"https://api.github.com/repos/test-owner/test-repo/pulls/145","id":4258806980,"number":145,"head":{"ref":"stack-bottom-dW4RtWmC","sha":"b5bec1eaccc7a5fb6d5ac747c67832c156bf51bd","repo":{"id":827815110,"url":"https://api.github.com/repos/test-owner/test-repo","name":"test-repo"}},"base":{"ref":"main","sha":"a7efdb1c882267e697dd38348dc668ad297d252b","repo":{"id":827815110,"url":"https://api.github.com/repos/test-owner/test-repo","name":"test-repo"}},"node_id":"PR_kwDOMVd0xs792DzE","title":"Native stack bottom stack-bottom-dW4RtWmC","state":"open","merged_at":null,"draft":false,"html_url":"https://github.com/test-owner/test-repo/pull/145","user":{"login":"test-owner","id":41730,"node_id":"MDQ6VXNlcjQxNzMw","avatar_url":"https://avatars.githubusercontent.com/u/41730?v=4","gravatar_id":"","url":"https://api.github.com/users/test-owner","html_url":"https://github.com/test-owner","followers_url":"https://api.github.com/users/test-owner/followers","following_url":"https://api.github.com/users/test-owner/following{/other_user}","gists_url":"https://api.github.com/users/test-owner/gists{/gist_id}","starred_url":"https://api.github.com/users/test-owner/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/test-owner/subscriptions","organizations_url":"https://api.github.com/users/test-owner/orgs","repos_url":"https://api.github.com/users/test-owner/repos","events_url":"https://api.github.com/users/test-owner/events{/privacy}","received_events_url":"https://api.github.com/users/test-owner/received_events","type":"User","user_view_type":"public","site_admin":false}},{"url":"https://api.github.com/repos/test-owner/test-repo/pulls/146","id":4258807059,"number":146,"head":{"ref":"stack-middle-g3WXJxSb","sha":"f740dffc87f2ddf00824f1a09d2c24b70811b247","repo":{"id":827815110,"url":"https://api.github.com/repos/test-owner/test-repo","name":"test-repo"}},"base":{"ref":"stack-bottom-dW4RtWmC","sha":"b5bec1eaccc7a5fb6d5ac747c67832c156bf51bd","repo":{"id":827815110,"url":"https://api.github.com/repos/test-owner/test-repo","name":"test-repo"}},"node_id":"PR_kwDOMVd0xs792D0T","title":"Native stack middle stack-middle-g3WXJxSb","state":"open","merged_at":null,"draft":false,"html_url":"https://github.com/test-owner/test-repo/pull/146","user":{"login":"test-owner","id":41730,"node_id":"MDQ6VXNlcjQxNzMw","avatar_url":"https://avatars.githubusercontent.com/u/41730?v=4","gravatar_id":"","url":"https://api.github.com/users/test-owner","html_url":"https://github.com/test-owner","followers_url":"https://api.github.com/users/test-owner/followers","following_url":"https://api.github.com/users/test-owner/following{/other_user}","gists_url":"https://api.github.com/users/test-owner/gists{/gist_id}","starred_url":"https://api.github.com/users/test-owner/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/test-owner/subscriptions","organizations_url":"https://api.github.com/users/test-owner/orgs","repos_url":"https://api.github.com/users/test-owner/repos","events_url":"https://api.github.com/users/test-owner/events{/privacy}","received_events_url":"https://api.github.com/users/test-owner/received_events","type":"User","user_view_type":"public","site_admin":false}}]}'
+        headers:
+            Content-Length:
+                - "3348"
+            Content-Type:
+                - application/json; charset=utf-8
+        status: 201 Created
+        code: 201
+        duration: 388.792916ms
+    - id: 5
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 327
+        host: api.github.com
+        body: |
+            {"query":"mutation($input:CreatePullRequestInput!){createPullRequest(input: $input){pullRequest{id,number,url}}}","variables":{"input":{"repositoryId":"R_kgDOMVd0xg","baseRefName":"stack-middle-g3WXJxSb","headRefName":"stack-top-gampXI6B","title":"Native stack top stack-top-gampXI6B","body":"Native stack integration test"}}}
+        headers:
+            Content-Type:
+                - application/json
+        url: https://api.github.com/graphql
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"data":{"createPullRequest":{"pullRequest":{"id":"PR_kwDOMVd0xs792D22","number":148,"url":"https://github.com/test-owner/test-repo/pull/148"}}}}'
+        headers:
+            Content-Type:
+                - application/json; charset=utf-8
+        status: 200 OK
+        code: 200
+        duration: 1.555021375s
+    - id: 6
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 443
+        host: api.github.com
+        body: |
+            {"query":"query($owner:String!,$repo:String!,$pr0:Int!,$pr1:Int!,$pr2:Int!){repository(owner: $owner, name: $repo){pr0:pullRequest(number: $pr0){state,headRepository{owner{login},name},stack{id}},pr1:pullRequest(number: $pr1){state,headRepository{owner{login},name},stack{id}},pr2:pullRequest(number: $pr2){state,headRepository{owner{login},name},stack{id}}}}","variables":{"owner":"test-owner","pr0":145,"pr1":146,"pr2":148,"repo":"test-repo"}}
+        headers:
+            Content-Type:
+                - application/json
+        url: https://api.github.com/graphql
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        body: '{"data":{"repository":{"pr0":{"state":"OPEN","headRepository":{"owner":{"login":"test-owner"},"name":"test-repo"},"stack":{"id":"PRS_kwDOMVd0xs4ABJvP"}},"pr1":{"state":"OPEN","headRepository":{"owner":{"login":"test-owner"},"name":"test-repo"},"stack":{"id":"PRS_kwDOMVd0xs4ABJvP"}},"pr2":{"state":"OPEN","headRepository":{"owner":{"login":"test-owner"},"name":"test-repo"},"stack":null}}}}'
+        headers:
+            Content-Type:
+                - application/json; charset=utf-8
+        status: 200 OK
+        code: 200
+        duration: 408.931958ms
+    - id: 7
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 184
+        host: api.github.com
+        body: |
+            {"query":"query($ids:[ID!]!){nodes(ids: $ids){... on PullRequestStack{id,number,entries(first: 100){nodes{pullRequest{number,state}}}}}}","variables":{"ids":["PRS_kwDOMVd0xs4ABJvP"]}}
+        headers:
+            Content-Type:
+                - application/json
+        url: https://api.github.com/graphql
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"data":{"nodes":[{"id":"PRS_kwDOMVd0xs4ABJvP","number":147,"entries":{"nodes":[{"pullRequest":{"number":145,"state":"OPEN"}},{"pullRequest":{"number":146,"state":"OPEN"}}]}}]}}'
+        headers:
+            Content-Type:
+                - application/json; charset=utf-8
+        status: 200 OK
+        code: 200
+        duration: 265.460458ms
+    - id: 8
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 24
+        host: api.github.com
+        body: |
+            {"pull_requests":[148]}
+        headers:
+            Content-Type:
+                - application/json
+        url: https://api.github.com/repos/test-owner/test-repo/stacks/147/add
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"id":302031,"number":147,"node_id":"PRS_kwDOMVd0xs4ABJvP","url":"https://api.github.com/repos/test-owner/test-repo/stacks/147","base":{"ref":"main"},"open":true,"created_at":"2026-08-12T03:16:01Z","pull_requests":[{"url":"https://api.github.com/repos/test-owner/test-repo/pulls/145","id":4258806980,"number":145,"head":{"ref":"stack-bottom-dW4RtWmC","sha":"b5bec1eaccc7a5fb6d5ac747c67832c156bf51bd","repo":{"id":827815110,"url":"https://api.github.com/repos/test-owner/test-repo","name":"test-repo"}},"base":{"ref":"main","sha":"a7efdb1c882267e697dd38348dc668ad297d252b","repo":{"id":827815110,"url":"https://api.github.com/repos/test-owner/test-repo","name":"test-repo"}},"node_id":"PR_kwDOMVd0xs792DzE","title":"Native stack bottom stack-bottom-dW4RtWmC","state":"open","merged_at":null,"draft":false,"html_url":"https://github.com/test-owner/test-repo/pull/145","user":{"login":"test-owner","id":41730,"node_id":"MDQ6VXNlcjQxNzMw","avatar_url":"https://avatars.githubusercontent.com/u/41730?v=4","gravatar_id":"","url":"https://api.github.com/users/test-owner","html_url":"https://github.com/test-owner","followers_url":"https://api.github.com/users/test-owner/followers","following_url":"https://api.github.com/users/test-owner/following{/other_user}","gists_url":"https://api.github.com/users/test-owner/gists{/gist_id}","starred_url":"https://api.github.com/users/test-owner/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/test-owner/subscriptions","organizations_url":"https://api.github.com/users/test-owner/orgs","repos_url":"https://api.github.com/users/test-owner/repos","events_url":"https://api.github.com/users/test-owner/events{/privacy}","received_events_url":"https://api.github.com/users/test-owner/received_events","type":"User","user_view_type":"public","site_admin":false}},{"url":"https://api.github.com/repos/test-owner/test-repo/pulls/146","id":4258807059,"number":146,"head":{"ref":"stack-middle-g3WXJxSb","sha":"f740dffc87f2ddf00824f1a09d2c24b70811b247","repo":{"id":827815110,"url":"https://api.github.com/repos/test-owner/test-repo","name":"test-repo"}},"base":{"ref":"stack-bottom-dW4RtWmC","sha":"b5bec1eaccc7a5fb6d5ac747c67832c156bf51bd","repo":{"id":827815110,"url":"https://api.github.com/repos/test-owner/test-repo","name":"test-repo"}},"node_id":"PR_kwDOMVd0xs792D0T","title":"Native stack middle stack-middle-g3WXJxSb","state":"open","merged_at":null,"draft":false,"html_url":"https://github.com/test-owner/test-repo/pull/146","user":{"login":"test-owner","id":41730,"node_id":"MDQ6VXNlcjQxNzMw","avatar_url":"https://avatars.githubusercontent.com/u/41730?v=4","gravatar_id":"","url":"https://api.github.com/users/test-owner","html_url":"https://github.com/test-owner","followers_url":"https://api.github.com/users/test-owner/followers","following_url":"https://api.github.com/users/test-owner/following{/other_user}","gists_url":"https://api.github.com/users/test-owner/gists{/gist_id}","starred_url":"https://api.github.com/users/test-owner/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/test-owner/subscriptions","organizations_url":"https://api.github.com/users/test-owner/orgs","repos_url":"https://api.github.com/users/test-owner/repos","events_url":"https://api.github.com/users/test-owner/events{/privacy}","received_events_url":"https://api.github.com/users/test-owner/received_events","type":"User","user_view_type":"public","site_admin":false}},{"url":"https://api.github.com/repos/test-owner/test-repo/pulls/148","id":4258807222,"number":148,"head":{"ref":"stack-top-gampXI6B","sha":"711662448930f8a00d161c842fb0ee8d401c994e","repo":{"id":827815110,"url":"https://api.github.com/repos/test-owner/test-repo","name":"test-repo"}},"base":{"ref":"stack-middle-g3WXJxSb","sha":"f740dffc87f2ddf00824f1a09d2c24b70811b247","repo":{"id":827815110,"url":"https://api.github.com/repos/test-owner/test-repo","name":"test-repo"}},"node_id":"PR_kwDOMVd0xs792D22","title":"Native stack top stack-top-gampXI6B","state":"open","merged_at":null,"draft":false,"html_url":"https://github.com/test-owner/test-repo/pull/148","user":{"login":"test-owner","id":41730,"node_id":"MDQ6VXNlcjQxNzMw","avatar_url":"https://avatars.githubusercontent.com/u/41730?v=4","gravatar_id":"","url":"https://api.github.com/users/test-owner","html_url":"https://github.com/test-owner","followers_url":"https://api.github.com/users/test-owner/followers","following_url":"https://api.github.com/users/test-owner/following{/other_user}","gists_url":"https://api.github.com/users/test-owner/gists{/gist_id}","starred_url":"https://api.github.com/users/test-owner/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/test-owner/subscriptions","organizations_url":"https://api.github.com/users/test-owner/orgs","repos_url":"https://api.github.com/users/test-owner/repos","events_url":"https://api.github.com/users/test-owner/events{/privacy}","received_events_url":"https://api.github.com/users/test-owner/received_events","type":"User","user_view_type":"public","site_admin":false}}]}'
+        headers:
+            Content-Type:
+                - application/json; charset=utf-8
+        status: 200 OK
+        code: 200
+        duration: 553.489542ms
+    - id: 9
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 443
+        host: api.github.com
+        body: |
+            {"query":"query($owner:String!,$repo:String!,$pr0:Int!,$pr1:Int!,$pr2:Int!){repository(owner: $owner, name: $repo){pr0:pullRequest(number: $pr0){state,headRepository{owner{login},name},stack{id}},pr1:pullRequest(number: $pr1){state,headRepository{owner{login},name},stack{id}},pr2:pullRequest(number: $pr2){state,headRepository{owner{login},name},stack{id}}}}","variables":{"owner":"test-owner","pr0":145,"pr1":146,"pr2":148,"repo":"test-repo"}}
+        headers:
+            Content-Type:
+                - application/json
+        url: https://api.github.com/graphql
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"data":{"repository":{"pr0":{"state":"OPEN","headRepository":{"owner":{"login":"test-owner"},"name":"test-repo"},"stack":{"id":"PRS_kwDOMVd0xs4ABJvP"}},"pr1":{"state":"OPEN","headRepository":{"owner":{"login":"test-owner"},"name":"test-repo"},"stack":{"id":"PRS_kwDOMVd0xs4ABJvP"}},"pr2":{"state":"OPEN","headRepository":{"owner":{"login":"test-owner"},"name":"test-repo"},"stack":{"id":"PRS_kwDOMVd0xs4ABJvP"}}}}}'
+        headers:
+            Content-Type:
+                - application/json; charset=utf-8
+        status: 200 OK
+        code: 200
+        duration: 304.897333ms
+    - id: 10
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 184
+        host: api.github.com
+        body: |
+            {"query":"query($ids:[ID!]!){nodes(ids: $ids){... on PullRequestStack{id,number,entries(first: 100){nodes{pullRequest{number,state}}}}}}","variables":{"ids":["PRS_kwDOMVd0xs4ABJvP"]}}
+        headers:
+            Content-Type:
+                - application/json
+        url: https://api.github.com/graphql
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        uncompressed: true
+        body: '{"data":{"nodes":[{"id":"PRS_kwDOMVd0xs4ABJvP","number":147,"entries":{"nodes":[{"pullRequest":{"number":145,"state":"OPEN"}},{"pullRequest":{"number":146,"state":"OPEN"}},{"pullRequest":{"number":148,"state":"OPEN"}}]}}]}}'
+        headers:
+            Content-Type:
+                - application/json; charset=utf-8
+        status: 200 OK
+        code: 200
+        duration: 614.415625ms

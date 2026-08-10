@@ -104,6 +104,7 @@ func TestIntegration(t *testing.T) {
 		RemoteURL:     remoteURL,
 		PushRemoteURL: pushRemoteURL,
 		Forge:         &githubForge,
+		TestStacks:    true,
 		Sanitizers:    sanitizers,
 		OpenRepository: func(t *testing.T, httpClient *http.Client) forge.Repository {
 			token := forgetest.Token(t, remoteURL, "GITHUB_TOKEN")

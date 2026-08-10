@@ -17,11 +17,13 @@ import (
 // githubGateway is the GitHub API boundary consumed by Repository.
 type githubGateway interface {
 	AddComment(context.Context, github.ID, string) (*github.AddedComment, error)
+	AddPullRequestsToStack(context.Context, *github.AddPullRequestsToStackInput) error
 	AddPullRequestMetadata(context.Context, *github.PullRequestMetadataInput) error
 	ChangeStatuses(context.Context, []github.ID) ([]*github.ChangeStatus, error)
 	ChangeTemplates(context.Context, string, string) ([]*github.ChangeTemplate, error)
 	ClosePullRequest(context.Context, github.ID) error
 	ConvertPullRequestToDraft(context.Context, github.ID) error
+	CreatePullRequestStack(context.Context, *github.CreatePullRequestStackInput) error
 	CreateLabel(context.Context, github.ID, string, string) (github.ID, error)
 	CreatePullRequest(context.Context, *github.CreatePullRequestInput) (*github.CreatedPullRequest, error)
 	DeleteIssueComment(context.Context, github.ID) error
@@ -33,6 +35,7 @@ type githubGateway interface {
 	MarkPullRequestReadyForReview(context.Context, github.ID) error
 	MergePullRequest(context.Context, *github.MergePullRequestInput) error
 	PullRequest(context.Context, string, string, int) (*github.PullRequest, error)
+	PullRequestsForStackUpdate(context.Context, string, string, []int) ([]*github.StackUpdatePullRequest, error)
 	PullRequestComments(context.Context, github.ID, *github.PaginationOptions) iter.Seq2[*github.Comment, error]
 	PullRequestID(context.Context, string, string, int) (github.ID, error)
 	PullRequestMergeability(context.Context, github.ID) (*github.Mergeability, error)

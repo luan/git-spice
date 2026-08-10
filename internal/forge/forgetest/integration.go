@@ -138,6 +138,13 @@ type IntegrationConfig struct {
 	// SkipCommentCounts skips the CommentCountsByChange test.
 	// Set to true for forges that don't support comment resolution tracking.
 	SkipCommentCounts bool // optional
+
+	// TestStacks enables the shared native stack integration scenario.
+	// OpenRepository must return a repository that implements
+	// [forge.WithStacks].
+	// The scenario creates, extends, and reuses a native stack, so the selected
+	// fixture and remote repository must support those provider operations.
+	TestStacks bool // optional
 }
 
 // RunIntegration runs integration tests with the given configuration.
@@ -296,6 +303,17 @@ func RunIntegration(t *testing.T, config IntegrationConfig) {
 			t.Parallel()
 
 			suite.TestCommentCountsByChange(t)
+		})
+	}
+
+	if config.TestStacks {
+		t.Run("Stacks", func(t *testing.T) {
+			t.Parallel()
+
+			repo := suite.OpenRepository(t)
+			stackRepository, ok := repo.(forge.WithStacks)
+			require.True(t, ok, "%T does not implement forge.WithStacks", repo)
+			suite.TestStacks(t, stackRepository)
 		})
 	}
 }

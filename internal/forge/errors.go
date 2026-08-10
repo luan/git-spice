@@ -6,6 +6,9 @@ import "errors"
 // does not match any registered forge.
 var ErrUnsupportedURL = errors.New("unsupported URL")
 
+// ErrUnsupported indicates that the requested operation is unavailable.
+var ErrUnsupported = errors.New("unsupported operation")
+
 // ErrNotFound indicates that a requested resource does not exist.
 var ErrNotFound = errors.New("not found")
 
