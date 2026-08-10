@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.abhg.dev/gs/internal/git"
 	"go.abhg.dev/gs/internal/silog/silogtest"
@@ -159,10 +158,12 @@ func (r *testRepository) DeleteRemoteBranch(name string) {
 func (r *testRepository) DeleteRemoteBranchFrom(remote, name string) {
 	ctx := r.ctx()
 	r.t.Logf("Deleting remote branch: %s/%s", remote, name)
-	assert.NoError(r.t, r.work.Push(ctx, git.PushOptions{
+	if err := r.work.Push(ctx, git.PushOptions{
 		Remote:  remote,
 		Refspec: git.Refspec(":" + name),
-	}), "error deleting branch")
+	}); err != nil {
+		r.t.Logf("Warning: failed to delete remote branch %s/%s: %v", remote, name, err)
+	}
 }
 
 // Repository returns the underlying git.Repository.

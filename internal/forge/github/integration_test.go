@@ -101,11 +101,12 @@ func TestIntegration(t *testing.T) {
 	}
 
 	forgetest.RunIntegration(t, forgetest.IntegrationConfig{
-		RemoteURL:     remoteURL,
-		PushRemoteURL: pushRemoteURL,
-		Forge:         &githubForge,
-		TestStacks:    true,
-		Sanitizers:    sanitizers,
+		RemoteURL:      remoteURL,
+		PushRemoteURL:  pushRemoteURL,
+		Forge:          &githubForge,
+		TestStacks:     true,
+		TestMergeRange: true,
+		Sanitizers:     sanitizers,
 		OpenRepository: func(t *testing.T, httpClient *http.Client) forge.Repository {
 			token := forgetest.Token(t, remoteURL, "GITHUB_TOKEN")
 			httpClient.Transport = &oauth2.Transport{
