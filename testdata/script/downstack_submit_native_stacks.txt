@@ -1,0 +1,43 @@
+# Native stacks are updated after submitting a stack (if supported).
+
+as 'Test <test@example.com>'
+at '2026-08-05T12:00:00Z'
+
+cd repo
+git init
+git config spice.forge.shamhub.stacks on
+git commit --allow-empty -m 'Initial commit'
+
+shamhub-setup
+shamhub new origin alice/example.git
+shamhub register alice
+git push origin main
+env SHAMHUB_USERNAME=alice
+gs auth login
+
+git add bottom.txt
+gs bc bottom -m 'Add bottom'
+git add top.txt
+gs bc top -m 'Add top'
+
+gs downstack submit --fill
+stderr 'Created #1'
+stderr 'Created #2'
+
+shamhub dump stacks alice/example
+cmpenvJSON stdout $WORK/stacks.json
+
+-- repo/bottom.txt --
+bottom
+-- repo/top.txt --
+top
+-- stacks.json --
+[
+  {
+    "number": 1
+  },
+  {
+    "number": 2,
+    "base": 1
+  }
+]

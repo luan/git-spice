@@ -133,6 +133,7 @@ func TestIntegration(t *testing.T) {
 		Options: Options{
 			URL:    gitURL,
 			APIURL: apiURL,
+			Stacks: stacksOn,
 		},
 		Log: silogtest.New(t),
 	}
@@ -159,7 +160,7 @@ func TestIntegration(t *testing.T) {
 		},
 		MergeChange: func(t *testing.T, repo forge.Repository, changeID forge.ChangeID) {
 			if forgetest.Update() {
-				r := repo.(*forgeRepository)
+				r := repo.(*stackRepository).forgeRepository
 				require.NoError(t, shamhub.MergeChange(MergeChangeRequest{
 					Owner:  r.owner,
 					Repo:   r.repo,
@@ -169,7 +170,7 @@ func TestIntegration(t *testing.T) {
 		},
 		CloseChange: func(t *testing.T, repo forge.Repository, changeID forge.ChangeID) {
 			if forgetest.Update() {
-				r := repo.(*forgeRepository)
+				r := repo.(*stackRepository).forgeRepository
 				require.NoError(t, shamhub.RejectChange(RejectChangeRequest{
 					Owner:  r.owner,
 					Repo:   r.repo,
@@ -186,7 +187,7 @@ func TestIntegration(t *testing.T) {
 			check forge.ChangeCheck,
 		) {
 			require.NoError(t,
-				repo.(*forgeRepository).setChangeCheck(
+				repo.(*stackRepository).setChangeCheck(
 					t.Context(),
 					changeID,
 					check,
@@ -195,5 +196,6 @@ func TestIntegration(t *testing.T) {
 		SetCommentsPageSize: SetListChangeCommentsPageSize,
 		Reviewers:           []string{"reviewer1", "reviewer2"},
 		Assignees:           []string{"assignee1", "assignee2"},
+		TestStacks:          true,
 	})
 }
