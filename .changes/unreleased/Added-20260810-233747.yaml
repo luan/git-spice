@@ -1,0 +1,3 @@
+kind: Added
+body: 'commit absorb: Absorb staged changes into matching commits in the stack without an interactive prompt.'
+time: 2026-08-10T23:37:47.491672-07:00

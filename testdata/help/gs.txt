@@ -65,6 +65,7 @@ Branch
 Commit
   commit (c) create (c)    Create a new commit
   commit (c) amend (a)     Amend the current commit
+  commit (c) absorb        Absorb staged changes into matching commits
   commit (c) split (sp)    Split the current commit
   commit (c) fixup (f)     Fixup a commit below the current commit
   commit (c) pick (p)      Cherry-pick a commit

@@ -1364,6 +1364,35 @@ The --no-prompt flag can be used to skip this prompt in scripts.
 
 **Configuration**: [spice.branchCreate.generatedBranchNameLimit](/cli/config.md#spicebranchcreategeneratedbranchnamelimit), [spice.branchCreate.prefix](/cli/config.md#spicebranchcreateprefix), [spice.commit.signoff](/cli/config.md#spicecommitsignoff), [spice.commitAmend.restack](/cli/config.md#spicecommitamendrestack)
 
+### git-spice commit absorb {#gs-commit-absorb}
+
+```
+gs commit (c) absorb [flags]
+```
+
+Absorb staged changes into matching commits
+
+Apply staged changes to the commits they belong to in the current branch.
+The tracked Git-Spice branch base limits which commits can be absorbed,
+and branches above the current branch are restacked by default.
+
+This command uses git-absorb and intentionally does not expose
+--base, --no-limit, or --force-detach because they would escape
+the current tracked stack branch.
+
+**Flags**
+
+* `--[no-]restack` ([:material-wrench:{ .middle title="spice.commitAbsorb.restack" }](/cli/config.md#spicecommitabsorbrestack)): Whether to restack upstack branches.
+* `--dry-run`: Show fixups without changing commits.
+* `--force-author`: Allow fixups to commits authored by someone else.
+* `-f`, `--force`: Skip git-absorb safety checks.
+* `-w`, `--whole-file`: Match changes against complete files.
+* `-F`, `--one-fixup-per-commit`: Create at most one fixup per commit.
+* `-s`, `--squash`: Create squash commits instead of fixups.
+* `-m`, `--message=STRING`: Commit message body for generated fixups.
+
+**Configuration**: [spice.commitAbsorb.restack](/cli/config.md#spicecommitabsorbrestack)
+
 ### git-spice commit split {#gs-commit-split}
 
 ```
