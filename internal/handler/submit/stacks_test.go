@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.abhg.dev/gs/internal/forge"
 	"go.abhg.dev/gs/internal/forge/forgetest"
 	"go.abhg.dev/gs/internal/silog"
@@ -28,15 +29,16 @@ func TestNativeStackChanges(t *testing.T) {
 		},
 	})
 
+	got := nativeStackChanges(graph, "test", []string{"top"})
 	assert.ElementsMatch(t, []forge.StackChange{
 		{Change: submitFakeChangeID("pr-1")},
 		{Change: submitFakeChangeID("pr-2"), Base: submitFakeChangeID("pr-1")},
 		{Change: submitFakeChangeID("pr-3"), Base: submitFakeChangeID("pr-2")},
 		{Change: submitFakeChangeID("pr-4"), Base: submitFakeChangeID("pr-2")},
-	}, nativeStackChanges(graph, "test", []string{"top"}))
+	}, got)
 }
 
-func TestHandler_updateStacks_unsupported(t *testing.T) {
+func TestHandler_updateStackRepresentations_unsupported(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	remoteForge := forgetest.NewMockForge(ctrl)
 	remoteRepo := forgetest.NewMockRepository(ctrl)
@@ -62,10 +64,14 @@ func TestHandler_updateStacks_unsupported(t *testing.T) {
 		return remoteRepo, nil
 	}
 
-	handler.updateStacks(t.Context(), []string{"feature"})
+	require.NoError(t, handler.updateStackRepresentations(
+		t.Context(),
+		&Options{NavComment: NavCommentNever},
+		[]string{"feature"},
+	))
 }
 
-func TestHandler_updateStacks_errors(t *testing.T) {
+func TestHandler_updateStackRepresentations_nativeStackErrors(t *testing.T) {
 	tests := []struct {
 		name    string
 		err     error
@@ -82,7 +88,7 @@ func TestHandler_updateStacks_errors(t *testing.T) {
 			remoteForge.EXPECT().ID().Return("test").AnyTimes()
 
 			remoteRepo := forgetest.NewMockRepository(ctrl)
-			remoteRepo.EXPECT().Forge().Return(remoteForge)
+			remoteRepo.EXPECT().Forge().Return(remoteForge).AnyTimes()
 			stackRepo := &submitStackRepository{
 				Repository: remoteRepo,
 				updateErr:  tt.err,
@@ -118,7 +124,12 @@ func TestHandler_updateStacks_errors(t *testing.T) {
 				return stackRepo, nil
 			}
 
-			handler.updateStacks(t.Context(), []string{"feature"})
+			require.NoError(t, handler.updateStackRepresentations(
+				t.Context(),
+				&Options{NavComment: NavCommentNever},
+				[]string{"feature"},
+			))
+			require.Len(t, stackRepo.updates, 1)
 
 			if tt.wantLog {
 				assert.Contains(t, logs.String(), "Could not update stacks")
@@ -133,12 +144,14 @@ func TestHandler_updateStacks_errors(t *testing.T) {
 type submitStackRepository struct {
 	forge.Repository
 
+	updates   [][]forge.StackChange
 	updateErr error
 }
 
 func (r *submitStackRepository) UpdateStack(
 	_ context.Context,
-	_ []forge.StackChange,
+	changes []forge.StackChange,
 ) error {
+	r.updates = append(r.updates, changes)
 	return r.updateErr
 }

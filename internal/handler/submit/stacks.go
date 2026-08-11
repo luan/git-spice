@@ -1,48 +1,9 @@
 package submit
 
 import (
-	"context"
-	"errors"
-
 	"go.abhg.dev/gs/internal/forge"
 	"go.abhg.dev/gs/internal/spice"
 )
-
-// updateStacks updates the forge-native representation of the tracked stack
-// trees affected by a successful submit. Because the changes are already
-// published, unavailable capabilities are ignored and other failures are
-// reported as warnings rather than returned to the submit workflow.
-func (h *Handler) updateStacks(ctx context.Context, submitted []string) {
-	repo, err := h.upstreamRepository(ctx)
-	if err != nil {
-		h.Log.Warn("Could not update stacks", "error", err)
-		return
-	}
-
-	stackRepo, ok := repo.(forge.WithStacks)
-	if !ok {
-		return
-	}
-
-	// Submission can create change metadata after the command builds its first
-	// branch graph.
-	// Reload it so newly published changes participate in the update.
-	graph, err := h.Service.BranchGraph(ctx, nil)
-	if err != nil {
-		h.Log.Warn("Could not update stacks", "error", err)
-		return
-	}
-
-	changes := nativeStackChanges(graph, repo.Forge().ID(), submitted)
-	if len(changes) == 0 {
-		return
-	}
-
-	if err := stackRepo.UpdateStack(ctx, changes); err != nil &&
-		!errors.Is(err, forge.ErrUnsupported) {
-		h.Log.Warn("Could not update stacks", "error", err)
-	}
-}
 
 // nativeStackChanges projects every published change in a tree containing a
 // submitted branch into the forge's native-stack representation.

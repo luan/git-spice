@@ -63,7 +63,6 @@ var _ Store = (*state.Store)(nil)
 // Service provides access to the Spice service.
 type Service interface {
 	BranchGraph(context.Context, *spice.BranchGraphOptions) (*spice.BranchGraph, error)
-	LoadBranches(context.Context) ([]spice.LoadBranchItem, error)
 	VerifyRestacked(ctx context.Context, name string) error
 	UnusedBranchName(ctx context.Context, remote string, branch string) (string, error)
 	ListChangeTemplates(context.Context, string, forge.Repository) ([]*forge.ChangeTemplate, error)
@@ -213,7 +212,10 @@ type BatchRequest struct {
 
 // SubmitBatch submits a batch of branches to a remote repository,
 // creating or updating change requests as needed.
-func (h *Handler) SubmitBatch(ctx context.Context, req *BatchRequest) error {
+func (h *Handler) SubmitBatch(
+	ctx context.Context,
+	req *BatchRequest,
+) (retErr error) {
 	opts := cmp.Or(req.Options, &Options{})
 	mergeConfiguredOptions(opts)
 
@@ -236,7 +238,17 @@ func (h *Handler) SubmitBatch(ctx context.Context, req *BatchRequest) error {
 		return err
 	}
 
-	var branchesToComment []string
+	var submittedBranches []string
+	// A later branch failure must not strand earlier published changes without
+	// their stack representations. Synchronize every completed submission on
+	// every exit from the loop.
+	defer func() {
+		retErr = errors.Join(
+			retErr,
+			h.updateStackRepresentations(ctx, opts, submittedBranches),
+		)
+	}()
+
 	for _, branch := range req.Branches {
 		// Shallow copy the options because submitBranch may modify them.
 		opts := *opts
@@ -250,29 +262,11 @@ func (h *Handler) SubmitBatch(ctx context.Context, req *BatchRequest) error {
 			return fmt.Errorf("submit branch %s: %w", branch, err)
 		}
 		if status.Submitted {
-			branchesToComment = append(branchesToComment, branch)
+			submittedBranches = append(submittedBranches, branch)
 		}
 	}
 
-	if len(branchesToComment) == 0 || opts.DryRun {
-		return nil // nothing to do
-	}
-
-	h.updateStacks(ctx, branchesToComment)
-
-	return updateNavigationComments(
-		ctx,
-		h.Store, h.Service, h.Log,
-		opts.NavComment,
-		opts.NavCommentSync,
-		opts.NavCommentDownstack,
-		opts.NavCommentMarker,
-		opts.NavCommentTrunkLink,
-		opts.NavCommentTrunkLinkText,
-		branchesToComment,
-		h.upstreamRepository,
-		h.pushRepositoryID,
-	)
+	return nil
 }
 
 // Request is a request to submit a single branch to a remote repository.
@@ -322,26 +316,108 @@ func (h *Handler) Submit(ctx context.Context, req *Request) error {
 		return fmt.Errorf("submit branch %s: %w", req.Branch, err)
 	}
 
-	if !status.Submitted || opts.DryRun {
+	if !status.Submitted {
 		// Nothing was submitted, so nothing to do.
 		return nil
 	}
 
-	h.updateStacks(ctx, []string{req.Branch})
+	return h.updateStackRepresentations(ctx, opts, []string{req.Branch})
+}
 
-	return updateNavigationComments(
-		ctx,
-		h.Store, h.Service, h.Log,
-		opts.NavComment,
-		opts.NavCommentSync,
-		opts.NavCommentDownstack,
-		opts.NavCommentMarker,
-		opts.NavCommentTrunkLink,
-		opts.NavCommentTrunkLinkText,
-		[]string{req.Branch},
-		h.upstreamRepository,
-		h.pushRepositoryID,
+// updateStackRepresentations synchronizes the forge-native stack and
+// navigation comments from one view of the branch graph after submission.
+// The independent forge updates run concurrently. Native-stack operation
+// failures are warnings, while failures that prevent navigation comments are
+// returned to the submit operation.
+func (h *Handler) updateStackRepresentations(
+	ctx context.Context,
+	opts *Options,
+	submittedBranches []string,
+) error {
+	if len(submittedBranches) == 0 || opts.DryRun {
+		return nil
+	}
+
+	navCommentsEnabled := opts.NavComment != NavCommentNever
+	var (
+		remoteRepo forge.Repository
+		stackRepo  forge.WithStacks
+		graph      *spice.BranchGraph
 	)
+	if err := func() error {
+		var err error
+		remoteRepo, err = h.upstreamRepository(ctx)
+		if err != nil {
+			return fmt.Errorf("get remote repository: %w", err)
+		}
+
+		stackRepo, _ = remoteRepo.(forge.WithStacks)
+		if stackRepo == nil && !navCommentsEnabled {
+			return nil
+		}
+
+		graph, err = h.Service.BranchGraph(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("build branch graph: %w", err)
+		}
+		return nil
+	}(); err != nil {
+		if navCommentsEnabled {
+			return err
+		}
+		h.Log.Warn("Could not update stacks", "error", err)
+		return nil
+	}
+	if graph == nil {
+		return nil // neither representation is enabled
+	}
+
+	// Submission may have created change metadata that was absent from the graph
+	// used by the submit loop. This post-submit graph is the authoritative input
+	// for both remote representations. Navigation comment creation mutates its
+	// change metadata, so project the native-stack request before either remote
+	// write begins.
+	var stackChanges []forge.StackChange
+	if stackRepo != nil {
+		stackChanges = nativeStackChanges(graph, remoteRepo.Forge().ID(), submittedBranches)
+	}
+
+	var wg sync.WaitGroup
+	if len(stackChanges) > 0 {
+		wg.Go(func() {
+			if err := stackRepo.UpdateStack(ctx, stackChanges); err != nil &&
+				!errors.Is(err, forge.ErrUnsupported) {
+				h.Log.Warn("Could not update stacks", "error", err)
+			}
+		})
+	}
+
+	var navCommentErr error
+	if navCommentsEnabled {
+		wg.Go(func() {
+			navCommentErr = updateNavigationComments(
+				ctx,
+				navigationCommentUpdate{
+					store:            h.Store,
+					graph:            graph,
+					log:              h.Log,
+					remoteRepository: remoteRepo,
+
+					when:          opts.NavComment,
+					sync:          opts.NavCommentSync,
+					downstack:     opts.NavCommentDownstack,
+					marker:        opts.NavCommentMarker,
+					trunkLink:     opts.NavCommentTrunkLink,
+					trunkLinkText: opts.NavCommentTrunkLinkText,
+
+					submittedBranches: submittedBranches,
+					pushRepositoryID:  h.pushRepositoryID,
+				},
+			)
+		})
+	}
+	wg.Wait()
+	return navCommentErr
 }
 
 type submitStatus struct {
@@ -615,9 +691,10 @@ func (h *Handler) submitBranch(
 				branch.Base,
 				h.Store.Trunk(),
 			) {
-				log.Warnf("Branch %[1]s is not restacked."+
-					" Run '%[2]s branch restack --branch=%[1]s'"+
-					" to fix this.",
+				log.Warnf(
+					"Branch %[1]s is not restacked."+
+						" Run '%[2]s branch restack --branch=%[1]s'"+
+						" to fix this.",
 					branchToSubmit, cli.Name(),
 				)
 			} else {
@@ -976,7 +1053,8 @@ func (h *Handler) resolveUpstreamBranch(
 			return "", fmt.Errorf(
 				"refusing to push branch %q to trunk %q; "+
 					"run '%s branch untrack %s' and track the branch again",
-				branch, storedUpstream, cli.Name(), branch)
+				branch, storedUpstream, cli.Name(), branch,
+			)
 		}
 
 		return storedUpstream, nil
@@ -998,7 +1076,8 @@ func (h *Handler) resolveUpstreamBranch(
 			return "", fmt.Errorf(
 				"refusing to push branch %q to trunk %q; "+
 					"run 'git branch --unset-upstream %s'",
-				branch, b, branch)
+				branch, b, branch,
+			)
 		}
 
 		h.Log.Infof("%v: Using upstream name '%v'", branch, b)
@@ -1053,7 +1132,8 @@ func (h *Handler) prepareBranch(
 				WithDescription(
 					fmt.Sprintf("Branch %s has no changes compared to its base (%s). "+
 						"Submitting it will create an empty change request. "+
-						"This is usually not what you want to do.", branchToSubmit, baseBranch)).
+						"This is usually not what you want to do.", branchToSubmit, baseBranch),
+				).
 				WithValue(&submitNoChanges)
 			if err := ui.Run(h.View, field); err != nil {
 				return nil, fmt.Errorf("run prompt: %w", err)
@@ -1146,7 +1226,8 @@ func (h *Handler) prepareBranch(
 				WithTitle("Recover previously filled information?").
 				WithDescription(
 					"We found previously filled information for this branch.\n" +
-						"Would you like to recover and edit it?")
+						"Would you like to recover and edit it?",
+				)
 			if err := ui.Run(h.View, f); err != nil {
 				return nil, fmt.Errorf("prompt for recovery: %w", err)
 			}
