@@ -32,6 +32,8 @@ type Store struct {
 
 	trunk  string
 	remote Remote
+
+	branchCommitHook func(context.Context) error
 }
 
 // InitStoreRequest is a request to initialize the store
@@ -123,6 +125,11 @@ func InitStore(ctx context.Context, req InitStoreRequest) (*Store, error) {
 	}
 
 	return store, nil
+}
+
+// SetBranchCommitHook installs a callback after branch state commits.
+func (s *Store) SetBranchCommitHook(hook func(context.Context) error) {
+	s.branchCommitHook = hook
 }
 
 func transferTrunkBranch(ctx context.Context, db DB, oldTrunk, newTrunk string) error {

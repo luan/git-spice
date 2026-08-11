@@ -3,7 +3,9 @@ package spice
 
 import (
 	"context"
+	"fmt"
 	"iter"
+	"sync"
 
 	"go.abhg.dev/gs/internal/forge"
 	"go.abhg.dev/gs/internal/git"
@@ -100,6 +102,9 @@ type Service struct {
 	store  Store         // required
 	log    *silog.Logger
 	forges *forge.Registry
+
+	ghStackMu      sync.Mutex
+	syncingGHStack bool
 }
 
 // NewService builds a new service operating on the given repository and store.
@@ -120,13 +125,17 @@ func newService(
 	forges *forge.Registry,
 	log *silog.Logger,
 ) *Service {
-	return &Service{
+	svc := &Service{
 		repo:   repo,
 		wt:     wt,
 		store:  store,
 		log:    log,
 		forges: forges,
 	}
+	if stateStore, ok := store.(*state.Store); ok {
+		stateStore.SetBranchCommitHook(svc.syncGHStack)
+	}
+	return svc
 }
 
 // Trunk reports the name of the trunk branch.
@@ -136,6 +145,9 @@ func (s *Service) Trunk() string {
 
 // BranchGraph builds a full view of the graph of branches in the repository.
 func (s *Service) BranchGraph(ctx context.Context, opts *BranchGraphOptions) (*BranchGraph, error) {
+	if err := s.reconcileGHStack(ctx); err != nil {
+		return nil, fmt.Errorf("reconcile gh-stack state: %w", err)
+	}
 	// TODO: cache branch graph based on hash of store contents
 	return NewBranchGraph(ctx, s, opts)
 }

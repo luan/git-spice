@@ -1,0 +1,47 @@
+# Git-Spice automatically adopts the active local gh-stack graph.
+
+as 'Test <test@example.com>'
+at '2026-08-06T12:30:00Z'
+
+mkdir repo
+cd repo
+git init
+git commit --allow-empty -m 'Initial commit'
+
+gs branch create tracked -m tracked
+gs trunk
+git branch gh-one main
+git branch gh-two main
+git checkout gh-two
+
+env GH_STACK_JSON={"schemaVersion":1,"repository":"","stacks":[{"trunk":{"branch":"main"},"branches":[{"branch":"gh-one","base":"","pullRequest":{"number":101,"id":"PR_one"}},{"branch":"gh-two","base":"","pullRequest":{"number":102,"id":"PR_two"}}]}]}
+exec sh -c 'printf "%s\n" "$GH_STACK_JSON" > .git/gh-stack'
+
+# No import or manual tracking command is needed.
+gs log short
+stderr 'gh-two.*#102'
+stderr 'gh-one.*#101'
+stderr 'main'
+! stderr 'tracked'
+
+# Git-Spice mutations update gh-stack state before returning.
+exec sh -c 'printf "three\n" > third.txt'
+git add third.txt
+gs branch create gh-three -m 'gh-three'
+exec sh -c 'tr -d "\\n " < .git/gh-stack'
+stdout 'gh-one.*gh-two.*gh-three'
+gs log short
+stderr 'gh-one.*#101'
+stderr 'gh-two.*#102'
+stderr 'gh-three'
+
+# The previous Git-Spice stack still exists, but only --all shows it.
+gs log short --all
+stderr 'tracked'
+stderr 'gh-two'
+stderr 'gh-one'
+
+# If the two local sources disagree, fail instead of showing a stale stack.
+git checkout tracked
+! gs log short
+stderr 'current branch "tracked" is tracked by Git-Spice but absent from gh-stack state'

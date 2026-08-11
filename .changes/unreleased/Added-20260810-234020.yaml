@@ -1,0 +1,3 @@
+kind: Added
+body: 'github: Adopt the local `.git/gh-stack` graph automatically, and update it after Git-Spice mutations.'
+time: 2026-08-10T23:40:20.971197-07:00
