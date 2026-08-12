@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -23,7 +21,6 @@ import (
 	"go.abhg.dev/gs/internal/git"
 	"go.abhg.dev/gs/internal/httptest"
 	"go.abhg.dev/gs/internal/silog/silogtest"
-	"go.abhg.dev/gs/internal/xec"
 	"golang.org/x/oauth2"
 	"gopkg.in/dnaeon/go-vcr.v4/pkg/recorder"
 )
@@ -174,116 +171,43 @@ func TestIntegration_DivergentStackMerge(t *testing.T) {
 		return "divergent-stack-d-" + randomString(8)
 	}).Get(t)
 
-	var (
-		gitRepo *git.Repository
-		gitWork *git.Worktree
-	)
 	// Recording provisions a disposable remote branch graph and captures its
 	// API traffic. Replay begins below with the recorded branch names and HTTP
 	// fixture, without touching GitHub.
 	if forgetest.Update() {
-		t.Setenv("GIT_CONFIG_COUNT", "1")
-		t.Setenv("GIT_CONFIG_KEY_0", "commit.gpgsign")
-		t.Setenv("GIT_CONFIG_VALUE_0", "false")
-
-		repoDir := t.TempDir()
-		output := t.Output()
-		require.NoError(t, xec.Command(
-			t.Context(), silogtest.New(t), "git", "clone", remoteURL, repoDir,
-		).WithStdout(output).WithStderr(output).Run(), "clone test repository")
-
-		var err error
-		gitWork, err = git.OpenWorktree(t.Context(), repoDir, git.OpenOptions{
-			Log: silogtest.New(t),
-		})
-		require.NoError(t, err, "open test repository")
-		gitRepo = gitWork.Repository()
-		var pushedBranches []string
+		testRepo := forgetest.NewRepositoryBuilder(t, remoteURL)
 		t.Cleanup(func() {
-			if len(pushedBranches) == 0 {
-				return
-			}
-
-			ctx := context.WithoutCancel(t.Context())
-			patterns := make([]string, 0, len(pushedBranches))
-			for _, branch := range pushedBranches {
-				patterns = append(patterns, "refs/heads/"+branch)
-			}
-			for ref, err := range gitRepo.ListRemoteRefs(
-				ctx,
-				"origin",
-				&git.ListRemoteRefsOptions{Patterns: patterns},
-			) {
-				if !assert.NoError(t, err, "list disposable remote branches") {
-					break
-				}
-				branch := ref.Name[len("refs/heads/"):]
-				t.Logf("Deleting remote branch: %s", branch)
-				assert.NoError(t, gitWork.Push(ctx, git.PushOptions{
-					Remote:  "origin",
-					Refspec: git.Refspec(":" + branch),
-				}), "delete remote branch %q", branch)
+			for _, branch := range []string{dBranch, cBranch, bBranch, aBranch} {
+				testRepo.DeleteRemoteBranch(branch)
 			}
 		})
 
-		signature := &git.Signature{
-			Name:  "gs-test[bot]",
-			Email: "bot@example.com",
-		}
+		// Build a divergent branch graph.
+		// A-B-C becomes the native stack;
+		// D remains an unstacked pull request based on B.
+		//
+		//     main
+		//       |
+		//       A
+		//       |
+		//       B
+		//      / \
+		//     C   D
+		testRepo.CheckoutBranch("main")
 		for _, branch := range []string{aBranch, bBranch, cBranch} {
-			require.NoError(t, gitRepo.CreateBranch(
-				t.Context(), git.CreateBranchRequest{Name: branch},
-			), "create branch %q", branch)
-			require.NoError(t, gitWork.CheckoutBranch(t.Context(), branch),
-				"check out branch %q", branch)
-			require.NoError(t, os.WriteFile(
-				filepath.Join(repoDir, branch+".txt"),
-				[]byte("commit for "+branch+"\n"),
-				0o644,
-			), "write file for branch %q", branch)
-			require.NoError(t, xec.Command(
-				t.Context(), silogtest.New(t), "git", "add", ".",
-			).WithDir(repoDir).WithStdout(output).WithStderr(output).Run(),
-				"stage branch %q", branch)
-			require.NoError(t, gitWork.Commit(t.Context(), git.CommitRequest{
-				Message:   "commit for " + branch,
-				Author:    signature,
-				Committer: signature,
-			}), "commit branch %q", branch)
-			require.NoError(t, gitWork.Push(t.Context(), git.PushOptions{
-				Remote:  "origin",
-				Refspec: git.Refspec(branch),
-			}), "push branch %q", branch)
-			pushedBranches = append(pushedBranches, branch)
+			testRepo.CreateBranch(branch)
+			testRepo.CheckoutBranch(branch)
+			testRepo.WriteFile(branch+".txt", "commit for "+branch)
+			testRepo.AddAllAndCommit("commit for " + branch)
+			testRepo.Push(branch)
 		}
 
-		// D and C both begin at B, producing A -> B -> C and A -> B -> D.
-		require.NoError(t, gitWork.CheckoutBranch(t.Context(), bBranch),
-			"check out branch %q", bBranch)
-		require.NoError(t, gitRepo.CreateBranch(
-			t.Context(), git.CreateBranchRequest{Name: dBranch},
-		), "create branch %q", dBranch)
-		require.NoError(t, gitWork.CheckoutBranch(t.Context(), dBranch),
-			"check out branch %q", dBranch)
-		require.NoError(t, os.WriteFile(
-			filepath.Join(repoDir, dBranch+".txt"),
-			[]byte("commit for "+dBranch+"\n"),
-			0o644,
-		), "write file for branch %q", dBranch)
-		require.NoError(t, xec.Command(
-			t.Context(), silogtest.New(t), "git", "add", ".",
-		).WithDir(repoDir).WithStdout(output).WithStderr(output).Run(),
-			"stage branch %q", dBranch)
-		require.NoError(t, gitWork.Commit(t.Context(), git.CommitRequest{
-			Message:   "commit for " + dBranch,
-			Author:    signature,
-			Committer: signature,
-		}), "commit branch %q", dBranch)
-		require.NoError(t, gitWork.Push(t.Context(), git.PushOptions{
-			Remote:  "origin",
-			Refspec: git.Refspec(dBranch),
-		}), "push branch %q", dBranch)
-		pushedBranches = append(pushedBranches, dBranch)
+		testRepo.CheckoutBranch(bBranch)
+		testRepo.CreateBranch(dBranch)
+		testRepo.CheckoutBranch(dBranch)
+		testRepo.WriteFile(dBranch+".txt", "commit for "+dBranch)
+		testRepo.AddAllAndCommit("commit for " + dBranch)
+		testRepo.Push(dBranch)
 	}
 
 	rec := newRecorder(t, t.Name(), sanitizers)
@@ -296,36 +220,14 @@ func TestIntegration_DivergentStackMerge(t *testing.T) {
 
 	gatewayClient := newGateway(t, httpClient)
 	repo, err := github.NewRepository(
-		t.Context(), new(github.Forge), cfg.Owner, cfg.Repo,
+		t.Context(), &github.Forge{
+			Options: github.Options{
+				Stacks: true,
+			},
+		}, cfg.Owner, cfg.Repo,
 		silogtest.New(t), gatewayClient, "",
 	)
 	require.NoError(t, err)
-	var submittedChanges []forge.ChangeID
-	if forgetest.Update() {
-		t.Cleanup(func() {
-			if len(submittedChanges) == 0 {
-				return
-			}
-
-			ctx := context.WithoutCancel(t.Context())
-			statuses, err := repo.ChangeStatuses(ctx, submittedChanges)
-			if !assert.NoError(t, err, "read change states for cleanup") ||
-				!assert.Len(t, statuses, len(submittedChanges),
-					"cleanup status count") {
-				return
-			}
-			for i, status := range statuses {
-				if status.State == forge.ChangeOpen {
-					assert.NoError(t, github.CloseChange(
-						ctx,
-						repo,
-						submittedChanges[i].(*github.PR),
-					), "close surviving change %s", submittedChanges[i])
-				}
-			}
-		})
-	}
-
 	a, err := repo.SubmitChange(t.Context(), forge.SubmitChangeRequest{
 		Subject: "Divergent native stack A " + aBranch,
 		Body:    "Divergent native stack integration test",
@@ -333,7 +235,6 @@ func TestIntegration_DivergentStackMerge(t *testing.T) {
 		Head:    aBranch,
 	})
 	require.NoError(t, err, "create change A")
-	submittedChanges = append(submittedChanges, a.ID)
 	b, err := repo.SubmitChange(t.Context(), forge.SubmitChangeRequest{
 		Subject: "Divergent native stack B " + bBranch,
 		Body:    "Divergent native stack integration test",
@@ -341,7 +242,6 @@ func TestIntegration_DivergentStackMerge(t *testing.T) {
 		Head:    bBranch,
 	})
 	require.NoError(t, err, "create change B")
-	submittedChanges = append(submittedChanges, b.ID)
 	c, err := repo.SubmitChange(t.Context(), forge.SubmitChangeRequest{
 		Subject: "Divergent native stack C " + cBranch,
 		Body:    "Divergent native stack integration test",
@@ -349,7 +249,6 @@ func TestIntegration_DivergentStackMerge(t *testing.T) {
 		Head:    cBranch,
 	})
 	require.NoError(t, err, "create change C")
-	submittedChanges = append(submittedChanges, c.ID)
 	d, err := repo.SubmitChange(t.Context(), forge.SubmitChangeRequest{
 		Subject: "Divergent native stack D " + dBranch,
 		Body:    "Divergent native stack integration test",
@@ -357,7 +256,6 @@ func TestIntegration_DivergentStackMerge(t *testing.T) {
 		Head:    dBranch,
 	})
 	require.NoError(t, err, "create change D")
-	submittedChanges = append(submittedChanges, d.ID)
 
 	require.NoError(t, repo.UpdateStack(t.Context(), []forge.StackChange{
 		{Change: a.ID},
@@ -396,42 +294,33 @@ func TestIntegration_DivergentStackMerge(t *testing.T) {
 	})
 	require.NoError(t, err, "start A-B-C squash merge")
 
-	const mergeTimeout = 30 * time.Second
-	mergeTimer := time.NewTimer(mergeTimeout)
-	defer mergeTimer.Stop()
-	mergeTicker := time.NewTicker(500 * time.Millisecond)
-	defer mergeTicker.Stop()
-	accepted := operation == nil
-	for {
-		if !accepted {
-			status, err := operation.Status(t.Context())
-			require.NoError(t, err, "probe A-B-C merge operation")
-			switch status {
-			case forge.MergeOperationPending:
-			case forge.MergeOperationAccepted:
-				accepted = true
-			default:
-				require.FailNowf(t, "invalid A-B-C merge operation status",
-					"status: %v", status)
-			}
-		} else {
-			statuses, err := repo.ChangeStatuses(t.Context(), changeIDs[:3])
-			require.NoError(t, err, "read A-B-C states after merge")
-			require.Len(t, statuses, 3, "A-B-C status count")
-			if statuses[0].State == forge.ChangeMerged &&
-				statuses[1].State == forge.ChangeMerged &&
-				statuses[2].State == forge.ChangeMerged {
-				break
-			}
-		}
+	status, err := operation.Status(t.Context())
+	require.NoError(t, err, "probe A-B-C merge operation")
+	assert.Equal(t, forge.MergeOperationPending, status,
+		"A-B-C merge operation status")
 
+	// This should be plenty of time--probably.
+	// Bump it up if this test is flaky during recording.
+	if forgetest.Update() {
 		select {
-		case <-mergeTicker.C:
-		case <-mergeTimer.C:
-			require.FailNow(t, "A-B-C merge timed out")
+		case <-time.After(20 * time.Second):
+
 		case <-t.Context().Done():
 			require.FailNow(t, "divergent stack test context canceled")
 		}
+	}
+
+	status, err = operation.Status(t.Context())
+	require.NoError(t, err, "probe A-B-C merge operation")
+	assert.Equal(t, forge.MergeOperationAccepted, status,
+		"A-B-C merge operation status")
+
+	mergedStatuses, err := repo.ChangeStatuses(t.Context(), changeIDs[:3])
+	require.NoError(t, err, "read A-B-C states after merge")
+	require.Len(t, mergedStatuses, 3, "A-B-C status count")
+	for _, status := range mergedStatuses {
+		assert.Equal(t, forge.ChangeMerged, status.State,
+			"change %d state", status)
 	}
 
 	dStatuses, err := repo.ChangeStatuses(t.Context(), []forge.ChangeID{d.ID})
@@ -456,27 +345,10 @@ func TestIntegration_DivergentStackMerge(t *testing.T) {
 	assert.Equal(t, dHeadHash.String(), dPullRequest.HeadRefOID)
 	assert.Nil(t, dPullRequest.Stack)
 
-	const mergeabilityTimeout = 30 * time.Second
-	mergeabilityTimer := time.NewTimer(mergeabilityTimeout)
-	defer mergeabilityTimer.Stop()
-	mergeabilityTicker := time.NewTicker(500 * time.Millisecond)
-	defer mergeabilityTicker.Stop()
-	for {
-		mergeability, err := repo.ChangeMergeability(t.Context(), d.ID)
-		require.NoError(t, err, "read change D mergeability")
-		if mergeability.State == forge.ChangeMergeabilityReady {
-			break
-		}
-
-		select {
-		case <-mergeabilityTicker.C:
-		case <-mergeabilityTimer.C:
-			require.FailNowf(t, "change D did not become mergeable",
-				"last state: %v, reason: %v", mergeability.State, mergeability.Reason)
-		case <-t.Context().Done():
-			require.FailNow(t, "divergent stack test context canceled")
-		}
-	}
+	mergeability, err := repo.ChangeMergeability(t.Context(), d.ID)
+	require.NoError(t, err, "read change D mergeability")
+	assert.Equal(t, forge.ChangeMergeabilityReady, mergeability.State,
+		"change D mergeability: %v", mergeability.Reason)
 }
 
 func TestIntegration_Repository_LabelCreateDelete(t *testing.T) {

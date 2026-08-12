@@ -22,7 +22,7 @@ func (s *integrationSuite) TestStacks(t *testing.T, repo forge.WithStacks) {
 	}).Get(t)
 
 	if Update() {
-		testRepo := newTestRepository(t, s.RemoteURL)
+		testRepo := NewRepositoryBuilder(t, s.RemoteURL)
 		testRepo.CheckoutBranch("main")
 		for _, branch := range []string{bottomBranch, middleBranch, topBranch} {
 			testRepo.CreateBranch(branch)

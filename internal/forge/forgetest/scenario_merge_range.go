@@ -25,7 +25,7 @@ func (s *integrationSuite) TestMergeRange(
 	}).Get(t)
 
 	if Update() {
-		testRepo := newTestRepository(t, s.RemoteURL)
+		testRepo := NewRepositoryBuilder(t, s.RemoteURL)
 		testRepo.CheckoutBranch("main")
 		testRepo.CreateBranch(bottomBranch)
 		testRepo.CheckoutBranch(bottomBranch)
